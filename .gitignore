@@ -1,0 +1,16 @@
+# Godot
+.godot/
+*.import
+export_presets.cfg
+
+# Python
+tools/__pycache__/
+tools/*.pyc
+tools/venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Preview images (keep originals only)
+*_preview.png
