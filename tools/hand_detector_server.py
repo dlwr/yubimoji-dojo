@@ -106,18 +106,30 @@ def get_finger_states(landmarks):
     }
 
 
+def fingertip_distance(landmarks):
+    """Average distance between all fingertip pairs (how clustered they are)."""
+    tips = [4, 8, 12, 16, 20]  # thumb, index, middle, ring, pinky tips
+    total = 0
+    count = 0
+    for i in range(len(tips)):
+        for j in range(i + 1, len(tips)):
+            dx = landmarks[tips[i]].x - landmarks[tips[j]].x
+            dy = landmarks[tips[i]].y - landmarks[tips[j]].y
+            total += (dx * dx + dy * dy) ** 0.5
+            count += 1
+    return total / count if count > 0 else 999
+
+
 def recognize_sign(landmarks):
     """
     JSL finger spelling (Phase 1: あいうえお)
 
-    References for actual JSL yubimoji:
-    - あ (a): Closed fist, thumb tucked to side
+    Correct JSL yubimoji forms:
+    - あ (a): Fist with thumb extended to the side, palm forward
     - い (i): Pinky extended up, rest closed
-    - う (u): Index + middle extended together, pointing up
-    - え (e): Index + middle extended, middle bent/hooked over index
-                (like a hook shape)
-    - お (o): All fingers slightly curved downward from palm,
-                thumb crosses over palm
+    - う (u): Index + middle extended together (close), rest closed
+    - え (e): All 5 fingers extended and together, palm forward (like showing a card)
+    - お (o): All fingers curled to form a circle (fingertips clustered together)
     """
     state = get_finger_states(landmarks)
     thumb = state["thumb"]
@@ -125,40 +137,31 @@ def recognize_sign(landmarks):
     middle = state["middle"]
     ring = state["ring"]
     pinky = state["pinky"]
-    index_bent = state["index_bent"]
     spread = state["spread"]
 
     extended_count = sum([index, middle, ring, pinky])
+    tip_dist = fingertip_distance(landmarks)
 
-    # あ: fist — all fingers closed, thumb not extended
-    if extended_count == 0 and not thumb:
+    # お: all fingertips clustered together (making a circle/ball shape)
+    # Check this first — fingertips very close regardless of "extended" state
+    if tip_dist < 0.08:
+        return "お"
+
+    # あ: fist + thumb extended to the side (4 fingers closed, thumb open)
+    if extended_count == 0 and thumb:
         return "あ"
 
-    # い: pinky only extended
+    # い: pinky only extended, rest closed
     if pinky and not index and not middle and not ring:
         return "い"
 
-    # う: index + middle extended, close together, rest closed
-    if index and middle and not ring and not pinky and spread < 0.15:
+    # う: index + middle extended, close together, ring + pinky closed
+    if index and middle and not ring and not pinky:
         return "う"
 
-    # え: index + middle extended but spread apart, or index bent
-    # (え in JSL is often index extended with a hook/bend)
-    if index and not ring and not pinky:
-        if index_bent or (middle and spread > 0.12):
-            return "え"
-        # Also accept just index pointing if middle is partially curled
-        if not middle:
-            return "え"
-
-    # お: thumb crosses palm, fingers curved down
-    # Simplified: 3+ fingers extended with thumb extended
-    if extended_count >= 3 and thumb:
-        return "お"
-
-    # Also お: all fingers loosely extended (open hand with thumb)
-    if extended_count >= 4:
-        return "お"
+    # え: all 5 fingers extended (palm forward, like showing a card)
+    if extended_count >= 3 and thumb and index and middle:
+        return "え"
 
     return ""
 
