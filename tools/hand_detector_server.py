@@ -61,32 +61,103 @@ def is_thumb_extended(landmarks):
     return landmarks[4].x < landmarks[3].x
 
 
-def recognize_sign(landmarks):
-    """
-    JSL finger spelling (Phase 1: あいうえお)
-    - あ: Fist (all closed)
-    - い: Pinky only
-    - う: Index + middle (peace)
-    - え: Index only (pointing)
-    - お: All fingers open
-    """
+def finger_curl(landmarks, tip_idx, dip_idx, pip_idx, mcp_idx):
+    """How curled a finger is. Higher = more curled."""
+    tip_y = landmarks[tip_idx].y
+    dip_y = landmarks[dip_idx].y
+    pip_y = landmarks[pip_idx].y
+    mcp_y = landmarks[mcp_idx].y
+    # If tip is below mcp (in image coords, higher y = lower), finger is curled
+    return tip_y - mcp_y
+
+
+def get_finger_states(landmarks):
+    """Get detailed finger state info for debugging and recognition."""
     thumb = is_thumb_extended(landmarks)
     index = is_finger_extended(landmarks, 8, 6)
     middle = is_finger_extended(landmarks, 12, 10)
     ring = is_finger_extended(landmarks, 16, 14)
     pinky = is_finger_extended(landmarks, 20, 18)
 
+    # Curl amounts (positive = curled, negative = extended)
+    index_curl = finger_curl(landmarks, 8, 7, 6, 5)
+    middle_curl = finger_curl(landmarks, 12, 11, 10, 9)
+    ring_curl = finger_curl(landmarks, 16, 15, 14, 13)
+    pinky_curl = finger_curl(landmarks, 20, 19, 18, 17)
+
+    # Is index finger bent/hooked? (tip below DIP but above PIP)
+    index_bent = landmarks[8].y > landmarks[7].y and landmarks[8].y < landmarks[5].y
+
+    # Fingers spread? (horizontal distance between index and pinky tips)
+    spread = abs(landmarks[8].x - landmarks[20].x)
+
+    return {
+        "thumb": thumb,
+        "index": index,
+        "middle": middle,
+        "ring": ring,
+        "pinky": pinky,
+        "index_bent": index_bent,
+        "index_curl": round(index_curl, 3),
+        "middle_curl": round(middle_curl, 3),
+        "ring_curl": round(ring_curl, 3),
+        "pinky_curl": round(pinky_curl, 3),
+        "spread": round(spread, 3),
+    }
+
+
+def recognize_sign(landmarks):
+    """
+    JSL finger spelling (Phase 1: あいうえお)
+
+    References for actual JSL yubimoji:
+    - あ (a): Closed fist, thumb tucked to side
+    - い (i): Pinky extended up, rest closed
+    - う (u): Index + middle extended together, pointing up
+    - え (e): Index + middle extended, middle bent/hooked over index
+                (like a hook shape)
+    - お (o): All fingers slightly curved downward from palm,
+                thumb crosses over palm
+    """
+    state = get_finger_states(landmarks)
+    thumb = state["thumb"]
+    index = state["index"]
+    middle = state["middle"]
+    ring = state["ring"]
+    pinky = state["pinky"]
+    index_bent = state["index_bent"]
+    spread = state["spread"]
+
     extended_count = sum([index, middle, ring, pinky])
 
+    # あ: fist — all fingers closed, thumb not extended
     if extended_count == 0 and not thumb:
         return "あ"
+
+    # い: pinky only extended
     if pinky and not index and not middle and not ring:
         return "い"
-    if index and middle and not ring and not pinky:
+
+    # う: index + middle extended, close together, rest closed
+    if index and middle and not ring and not pinky and spread < 0.15:
         return "う"
-    if index and not middle and not ring and not pinky:
-        return "え"
-    if index and middle and ring and pinky:
+
+    # え: index + middle extended but spread apart, or index bent
+    # (え in JSL is often index extended with a hook/bend)
+    if index and not ring and not pinky:
+        if index_bent or (middle and spread > 0.12):
+            return "え"
+        # Also accept just index pointing if middle is partially curled
+        if not middle:
+            return "え"
+
+    # お: thumb crosses palm, fingers curved down
+    # Simplified: 3+ fingers extended with thumb extended
+    if extended_count >= 3 and thumb:
+        return "お"
+
+    # Also お: all fingers loosely extended (open hand with thumb)
+    if extended_count >= 4:
         return "お"
 
     return ""
@@ -154,14 +225,25 @@ def camera_loop():
                         cv2.line(display_frame, points[c[0]], points[c[1]], (0, 200, 0), 2)
 
                 recognized = recognize_sign(hand)
+                finger_info = get_finger_states(hand)
                 if recognized:
                     cv2.putText(display_frame, recognized, (20, 60),
                                 cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 255), 3)
+
+                # Show finger states on frame for debugging
+                debug_y = 90
+                for fname in ["thumb", "index", "middle", "ring", "pinky"]:
+                    val = finger_info[fname]
+                    color = (0, 255, 0) if val else (0, 0, 255)
+                    cv2.putText(display_frame, f"{fname}: {'O' if val else 'X'}",
+                                (20, debug_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+                    debug_y += 20
 
                 current_state = {
                     "detected": True,
                     "landmarks": lm_list,
                     "recognized": recognized,
+                    "fingers": finger_info,
                 }
             else:
                 current_state = {
