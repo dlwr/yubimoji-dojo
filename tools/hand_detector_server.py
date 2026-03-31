@@ -3,7 +3,7 @@ Hand Detector Sidecar Server for 指文字道場
 
 Runs a local Flask server that:
 1. Captures webcam feed via OpenCV
-2. Detects hand landmarks via MediaPipe
+2. Detects hand landmarks via MediaPipe Tasks API (0.10.x+)
 3. Recognizes Japanese finger spelling (あいうえお)
 4. Serves results via HTTP GET /landmarks
 
@@ -15,21 +15,31 @@ The Godot game polls http://127.0.0.1:8765/landmarks
 """
 
 import json
+import os
 import threading
+import urllib.request
+
 import cv2
 import mediapipe as mp
 from flask import Flask, jsonify
 
 app = Flask(__name__)
 
-# MediaPipe setup
-mp_hands = mp.solutions.hands
-hands = mp_hands.Hands(
-    static_image_mode=False,
-    max_num_hands=1,
-    min_detection_confidence=0.7,
-    min_tracking_confidence=0.5,
-)
+# ── MediaPipe Tasks API setup ────────────────────────────────────────────────
+
+BaseOptions = mp.tasks.BaseOptions
+HandLandmarker = mp.tasks.vision.HandLandmarker
+HandLandmarkerOptions = mp.tasks.vision.HandLandmarkerOptions
+RunningMode = mp.tasks.vision.RunningMode
+
+# Download hand landmarker model if not present
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "hand_landmarker.task")
+MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task"
+
+if not os.path.exists(MODEL_PATH):
+    print("📥 Downloading hand landmarker model...")
+    urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
+    print("✅ Model downloaded!")
 
 # Shared state (updated by camera thread)
 current_state = {
@@ -97,6 +107,17 @@ def camera_loop():
     """Background thread: capture webcam + detect hands."""
     global current_state
 
+    # Create hand landmarker
+    options = HandLandmarkerOptions(
+        base_options=BaseOptions(model_asset_path=MODEL_PATH),
+        running_mode=RunningMode.IMAGE,
+        num_hands=1,
+        min_hand_detection_confidence=0.7,
+        min_hand_presence_confidence=0.5,
+        min_tracking_confidence=0.5,
+    )
+    landmarker = HandLandmarker.create_from_options(options)
+
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         print("⚠️  カメラが開けません！")
@@ -112,16 +133,19 @@ def camera_loop():
         # Flip for mirror effect
         frame = cv2.flip(frame, 1)
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = hands.process(rgb)
+
+        # Convert to MediaPipe Image
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        result = landmarker.detect(mp_image)
 
         with state_lock:
-            if results.multi_hand_landmarks:
-                hand = results.multi_hand_landmarks[0]
+            if result.hand_landmarks and len(result.hand_landmarks) > 0:
+                hand = result.hand_landmarks[0]
                 lm_list = []
-                for lm in hand.landmark:
+                for lm in hand:
                     lm_list.append({"x": lm.x, "y": lm.y, "z": lm.z})
 
-                recognized = recognize_sign(hand.landmark)
+                recognized = recognize_sign(hand)
 
                 current_state = {
                     "detected": True,
