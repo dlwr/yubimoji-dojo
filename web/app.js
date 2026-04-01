@@ -416,6 +416,58 @@ function isHandCurrentlyMoving(history) {
 
 // ── Recognition (3-Axis) ────────────────────────────────────────────────────
 
+function recognizeDebug(history) {
+  // Returns sorted array of {char, score, type} for debugging
+  if (!Object.keys(calibrationData).length || !history.length) return [];
+
+  const moving = isHandCurrentlyMoving(history);
+  const recentlyMoved = history.length >= 10 && isHandCurrentlyMoving(history.slice(-20));
+  const results = [];
+
+  for (const [char, cal] of Object.entries(calibrationData)) {
+    if (cal.hasMotion) {
+      if (!moving && !recentlyMoved) continue;
+      const recentShapes = history.slice(-20).map(h => h.shape);
+      const recentPositions = history.slice(-20).map(h => h.position);
+
+      let shapeSim = 0;
+      if (cal.shapes.length > 0) {
+        const d = dtwShape(recentShapes, cal.shapes);
+        shapeSim = Math.max(0, 1 - d / 0.8);
+      }
+      let motionSim = 0;
+      if (cal.positions.length > 0) {
+        const d = motionDistance(recentPositions, cal.positions);
+        motionSim = Math.max(0, 1 - d / 0.1);
+      }
+      let orientSim = 0;
+      if (cal.orientations.length > 0) {
+        const calMid = cal.orientations[Math.floor(cal.orientations.length / 2)];
+        const curOr = history[history.length - 1].orientation;
+        orientSim = Math.max(0, 1 - orientationDistance(curOr, calMid) / 1.5);
+      }
+      const score = shapeSim * 0.4 + motionSim * 0.4 + orientSim * 0.2;
+      results.push({char, score: Math.round(score * 100), type: "動"});
+    } else {
+      const latest = history[history.length - 1];
+      const midIdx = Math.floor(cal.shapes.length / 2);
+      const d = shapeDistance(latest.shape, cal.shapes[midIdx]);
+      const shapeSim = Math.max(0, 1 - d / 0.5);
+      let orientSim = 0;
+      if (cal.orientations.length > 0) {
+        const midOr = cal.orientations[Math.floor(cal.orientations.length / 2)];
+        orientSim = Math.max(0, 1 - orientationDistance(latest.orientation, midOr) / 1.5);
+      }
+      const hasOrient = cal.orientations && cal.orientations.length > 0;
+      const score = hasOrient ? shapeSim * 0.7 + orientSim * 0.3 : shapeSim;
+      results.push({char, score: Math.round(score * 100), type: "静"});
+    }
+  }
+
+  results.sort((a, b) => b.score - a.score);
+  return results;
+}
+
 function recognize(history) {
   if (!Object.keys(calibrationData).length || !history.length) return ["", 0];
 
@@ -585,11 +637,12 @@ function onHandResults(results) {
     recognizeCounter++;
     const shouldRecognize = recognizeCounter % 3 === 0;
 
-    // Calibration test mode
+    // Calibration test mode — show top 3 candidates for debugging
     if (currentScreen === "calibration-screen" && !calRecording && shouldRecognize) {
-      const [char, conf] = recognize(featureHistory);
-      if (char && conf > 20) {
-        updateCalStatus(`認識: ${char} (${conf}%)`);
+      const result = recognizeDebug(featureHistory);
+      if (result.length > 0) {
+        const top = result.slice(0, 3).map(r => `${r.char}(${r.score}%)`).join(" ");
+        updateCalStatus(`認識: ${top}`);
       } else {
         updateCalStatus("✋ 手を出すと認識テスト");
       }
