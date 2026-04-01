@@ -1,4 +1,9 @@
-// ── 指文字道場 Browser Edition ──────────────────────────────────────────────
+// ── 指文字道場 Browser Edition (3-Axis Recognition) ─────────────────────────
+//
+// Recognition uses 3 independent axes:
+//   1. Shape:       finger joint angles (relative positions between joints)
+//   2. Orientation: palm normal vector (which direction the hand faces)
+//   3. Motion:      wrist position change over time (relative to start)
 
 // 50音表
 const GOJUON = [
@@ -25,101 +30,27 @@ const GOJUON = [
   ["っ","ゃ","ゅ","ょ","ゎ"],
 ];
 
+const SECTION_LABELS = {
+  0: "清音",
+  10: "濁音",
+  14: "半濁音",
+  15: "小書き",
+};
+
 const WORDS = [
   "さくら","やま","かわ","そら","うみ",
   "ねこ","いぬ","とり","さかな",
   "あめ","かぜ","ゆき","はな",
   "てがみ","ともだち","せんせい",
   "おはよう","ありがとう","こんにちは",
-  "ヴァンフォーレ","こうふ",
+  "こうふ",
 ];
 
-// ── State ───────────────────────────────────────────────────────────────────
+// ── 3-Axis Feature Extraction ───────────────────────────────────────────────
 
-let calibrationData = {};  // char -> {frames: [...], hasMotion: bool}
-let hands = null;
-let camera = null;
-let currentScreen = "title-screen";
-
-// Game state
-let gameMode = "random";  // "random" | "word"
-let gameScore = 0;
-let gameTotal = 0;
-let gameCurrentChar = "";
-let gameWord = "";
-let gameWordIndex = 0;
-let gameTimer = 10;
-let gameTimerInterval = null;
-let gameWaiting = false;
-
-// Calibration state
-let calRecording = false;
-let calChar = "";
-let calFrames = [];
-let calCountdown = 0;
-let calStartTime = 0;
-let calDuration = 2;
-let calRawFrames = [];
-
-// Recognition
-const HISTORY_MAX = 30;
-let landmarkHistory = [];
-let lastRecognized = "";
-let lastRecognizedTime = 0;
-
-// ── Persistence ─────────────────────────────────────────────────────────────
-
-function saveCalibration() {
-  localStorage.setItem("yubimoji-calibration", JSON.stringify(calibrationData));
-}
-
-function loadCalibration() {
-  const data = localStorage.getItem("yubimoji-calibration");
-  if (data) {
-    calibrationData = JSON.parse(data);
-    console.log("Loaded calibration:", Object.keys(calibrationData).length, "signs");
-  }
-}
-
-function exportCalibration() {
-  const blob = new Blob([JSON.stringify(calibrationData, null, 2)], {type: "application/json"});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "calibration_data.json";
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function importCalibration(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    try {
-      const data = JSON.parse(e.target.result);
-      // Support both formats: {char: {frames, hasMotion}} and {char: {frames, has_motion}}
-      for (const [char, val] of Object.entries(data)) {
-        if (val.frames) {
-          calibrationData[char] = {
-            frames: val.frames,
-            hasMotion: val.hasMotion || val.has_motion || false,
-          };
-        }
-      }
-      saveCalibration();
-      updateGojuonGrid();
-      alert(`${Object.keys(data).length}文字インポートしました！`);
-    } catch (err) {
-      alert("読み込みエラー: " + err.message);
-    }
-  };
-  reader.readAsText(file);
-}
-
-// ── Normalization ───────────────────────────────────────────────────────────
-
-function normalizeLandmarks(landmarks) {
+function extractShape(landmarks) {
+  // Shape: relative angles/distances between finger joints
+  // Normalize relative to wrist, scaled by hand size
   const wrist = landmarks[0];
   const midMcp = landmarks[9];
   let scale = Math.sqrt(
@@ -128,15 +59,62 @@ function normalizeLandmarks(landmarks) {
   if (scale < 0.001) scale = 0.001;
 
   return landmarks.map(lm => ({
-    x: +((lm.x - wrist.x) / scale).toFixed(4),
-    y: +((lm.y - wrist.y) / scale).toFixed(4),
-    z: +((lm.z - wrist.z) / scale).toFixed(4),
+    x: (lm.x - wrist.x) / scale,
+    y: (lm.y - wrist.y) / scale,
+    z: (lm.z - wrist.z) / scale,
   }));
 }
 
-// ── DTW ─────────────────────────────────────────────────────────────────────
+function extractOrientation(landmarks) {
+  // Orientation: palm normal vector using cross product
+  // Vector A: wrist → middle MCP (landmark 0 → 9)
+  // Vector B: wrist → index MCP (landmark 0 → 5)
+  // Normal = A × B (gives direction palm faces)
+  const w = landmarks[0];
+  const mMcp = landmarks[9];
+  const iMcp = landmarks[5];
 
-function frameDistance(a, b) {
+  const ax = mMcp.x - w.x, ay = mMcp.y - w.y, az = mMcp.z - w.z;
+  const bx = iMcp.x - w.x, by = iMcp.y - w.y, bz = iMcp.z - w.z;
+
+  // Cross product
+  let nx = ay * bz - az * by;
+  let ny = az * bx - ax * bz;
+  let nz = ax * by - ay * bx;
+
+  // Normalize
+  const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+  if (len > 0.0001) {
+    nx /= len; ny /= len; nz /= len;
+  }
+
+  // Also compute hand "up" direction (wrist → middle fingertip)
+  const tip = landmarks[12];
+  let ux = tip.x - w.x, uy = tip.y - w.y, uz = tip.z - w.z;
+  const ulen = Math.sqrt(ux * ux + uy * uy + uz * uz);
+  if (ulen > 0.0001) {
+    ux /= ulen; uy /= ulen; uz /= ulen;
+  }
+
+  return { nx, ny, nz, ux, uy, uz };
+}
+
+function extractPosition(landmarks) {
+  // Raw wrist position (for motion tracking)
+  return { x: landmarks[0].x, y: landmarks[0].y, z: landmarks[0].z };
+}
+
+function extractFeatures(landmarks) {
+  return {
+    shape: extractShape(landmarks),
+    orientation: extractOrientation(landmarks),
+    position: extractPosition(landmarks),
+  };
+}
+
+// ── Distance Functions (per axis) ───────────────────────────────────────────
+
+function shapeDistance(a, b) {
   let total = 0;
   for (let i = 0; i < Math.min(a.length, b.length, 21); i++) {
     const dx = a[i].x - b[i].x;
@@ -146,7 +124,35 @@ function frameDistance(a, b) {
   return total / 21;
 }
 
-function dtwDistance(seqA, seqB) {
+function orientationDistance(a, b) {
+  // Cosine distance of palm normal
+  const dotN = a.nx * b.nx + a.ny * b.ny + a.nz * b.nz;
+  // Cosine distance of hand "up" direction
+  const dotU = a.ux * b.ux + a.uy * b.uy + a.uz * b.uz;
+  // Average: 0 = identical, 2 = opposite
+  return (1 - dotN) + (1 - dotU);
+}
+
+function motionDistance(seqA, seqB) {
+  // Compare relative motion trajectories using DTW
+  // Convert absolute positions to relative (delta from first frame)
+  if (seqA.length < 2 || seqB.length < 2) return 0;
+
+  const relA = seqA.map(p => ({
+    x: p.x - seqA[0].x,
+    y: p.y - seqA[0].y,
+    z: p.z - seqA[0].z,
+  }));
+  const relB = seqB.map(p => ({
+    x: p.x - seqB[0].x,
+    y: p.y - seqB[0].y,
+    z: p.z - seqB[0].z,
+  }));
+
+  return dtwPositions(relA, relB);
+}
+
+function dtwPositions(seqA, seqB) {
   const MAX = 25;
   if (seqA.length > MAX) {
     const step = (seqA.length - 1) / (MAX - 1);
@@ -158,78 +164,274 @@ function dtwDistance(seqA, seqB) {
   }
 
   const n = seqA.length, m = seqB.length;
-  if (n === 0 || m === 0) return 999;
+  if (n === 0 || m === 0) return 0;
 
   const dtw = Array.from({length: n + 1}, () => new Float32Array(m + 1).fill(Infinity));
   dtw[0][0] = 0;
 
   for (let i = 1; i <= n; i++) {
     for (let j = 1; j <= m; j++) {
-      const cost = frameDistance(seqA[i-1], seqB[j-1]);
+      const dx = seqA[i-1].x - seqB[j-1].x;
+      const dy = seqA[i-1].y - seqB[j-1].y;
+      const cost = Math.sqrt(dx * dx + dy * dy);
       dtw[i][j] = cost + Math.min(dtw[i-1][j], dtw[i][j-1], dtw[i-1][j-1]);
     }
   }
   return dtw[n][m] / Math.max(n, m);
 }
 
-// ── Recognition ─────────────────────────────────────────────────────────────
+// ── DTW for shape sequences ─────────────────────────────────────────────────
 
-function isHandMoving(history) {
-  // Check if hand has significant movement in recent frames
-  if (history.length < 5) return false;
-  const recent = history.slice(-15);
+function dtwShape(seqA, seqB) {
+  const MAX = 25;
+  if (seqA.length > MAX) {
+    const step = (seqA.length - 1) / (MAX - 1);
+    seqA = Array.from({length: MAX}, (_, i) => seqA[Math.round(i * step)]);
+  }
+  if (seqB.length > MAX) {
+    const step = (seqB.length - 1) / (MAX - 1);
+    seqB = Array.from({length: MAX}, (_, i) => seqB[Math.round(i * step)]);
+  }
+  const n = seqA.length, m = seqB.length;
+  if (n === 0 || m === 0) return 999;
+  const dtw = Array.from({length: n + 1}, () => new Float32Array(m + 1).fill(Infinity));
+  dtw[0][0] = 0;
+  for (let i = 1; i <= n; i++) {
+    for (let j = 1; j <= m; j++) {
+      const cost = shapeDistance(seqA[i-1], seqB[j-1]);
+      dtw[i][j] = cost + Math.min(dtw[i-1][j], dtw[i][j-1], dtw[i-1][j-1]);
+    }
+  }
+  return dtw[n][m] / Math.max(n, m);
+}
+
+// ── State ───────────────────────────────────────────────────────────────────
+
+let calibrationData = {};  // char -> {shapes, orientations, positions, hasMotion}
+let hands = null;
+let camera = null;
+let currentScreen = "title-screen";
+
+// Game state
+let gameMode = "random";
+let gameScore = 0;
+let gameTotal = 0;
+let gameCurrentChar = "";
+let gameWord = "";
+let gameWordIndex = 0;
+let gameTimer = 10;
+let gameTimerInterval = null;
+let gameWaiting = false;
+let gamePaused = false;
+
+// Calibration state
+let calRecording = false;
+let calChar = "";
+let calShapes = [];
+let calOrientations = [];
+let calPositions = [];
+let calCountdown = 0;
+let calStartTime = 0;
+let calDuration = 2;
+
+// Recognition history
+const HISTORY_MAX = 30;
+let featureHistory = [];  // list of {shape, orientation, position}
+let lastRecognized = "";
+let lastRecognizedTime = 0;
+
+// ── Persistence ─────────────────────────────────────────────────────────────
+
+function saveCalibration() {
+  localStorage.setItem("yubimoji-calibration-v2", JSON.stringify(calibrationData));
+}
+
+function loadCalibration() {
+  const data = localStorage.getItem("yubimoji-calibration-v2");
+  if (data) {
+    calibrationData = JSON.parse(data);
+    console.log("Loaded calibration v2:", Object.keys(calibrationData).length, "signs");
+  }
+}
+
+function exportCalibration() {
+  const blob = new Blob([JSON.stringify(calibrationData, null, 2)], {type: "application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "calibration_data_v2.json";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importCalibration(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      let count = 0;
+      for (const [char, val] of Object.entries(data)) {
+        if (val.shapes) {
+          // v2 format
+          calibrationData[char] = val;
+          count++;
+        } else if (val.frames) {
+          // v1 format — migrate
+          calibrationData[char] = migrateV1(char, val);
+          count++;
+        }
+      }
+      saveCalibration();
+      updateGojuonGrid();
+      alert(`${count}文字インポートしました！`);
+    } catch (err) {
+      alert("読み込みエラー: " + err.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+function migrateV1(char, v1data) {
+  // Convert v1 (single frames array) to v2 (separate axes)
+  // v1 frames are already normalized shapes
+  return {
+    shapes: v1data.frames,
+    orientations: [],  // not available in v1
+    positions: [],     // not available in v1
+    hasMotion: v1data.hasMotion || v1data.has_motion || false,
+  };
+}
+
+// ── Motion Detection ────────────────────────────────────────────────────────
+
+function detectMotionFromPositions(positions) {
+  if (positions.length < 5) return false;
   let maxDist = 0;
-  for (let i = 1; i < recent.length; i++) {
-    const d = frameDistance(recent[i - 1], recent[i]);
+  const first = positions[0];
+  for (const p of positions) {
+    const dx = p.x - first.x;
+    const dy = p.y - first.y;
+    const d = Math.sqrt(dx * dx + dy * dy);
     if (d > maxDist) maxDist = d;
   }
-  // Also check overall displacement
-  const totalDist = frameDistance(recent[0], recent[recent.length - 1]);
-  return maxDist > 0.1 || totalDist > 0.15;
+  return maxDist > 0.04;  // ~4% of screen
 }
+
+function detectMotionFromShapes(shapes) {
+  if (shapes.length < 5) return false;
+  let maxDist = 0;
+  for (const s of shapes) {
+    const d = shapeDistance(shapes[0], s);
+    if (d > maxDist) maxDist = d;
+  }
+  return maxDist > 0.3;
+}
+
+function isHandCurrentlyMoving(history) {
+  if (history.length < 5) return false;
+  const recent = history.slice(-12);
+  let maxDist = 0;
+  for (let i = 1; i < recent.length; i++) {
+    const dx = recent[i].position.x - recent[i-1].position.x;
+    const dy = recent[i].position.y - recent[i-1].position.y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d > maxDist) maxDist = d;
+  }
+  const totalDx = recent[recent.length-1].position.x - recent[0].position.x;
+  const totalDy = recent[recent.length-1].position.y - recent[0].position.y;
+  const totalDist = Math.sqrt(totalDx * totalDx + totalDy * totalDy);
+  return maxDist > 0.008 || totalDist > 0.03;
+}
+
+// ── Recognition (3-Axis) ────────────────────────────────────────────────────
 
 function recognize(history) {
   if (!Object.keys(calibrationData).length || !history.length) return ["", 0];
 
-  const handMoving = isHandMoving(history);
+  const moving = isHandCurrentlyMoving(history);
+  // Also check if moved in recent ~1 second
+  const recentlyMoved = history.length >= 10 &&
+    isHandCurrentlyMoving(history.slice(-20));
 
-  // Track if hand moved recently (within last ~1 second)
-  const recentlyMoved = history.length >= 15 && isHandMoving(history.slice(-20));
+  let bestStaticChar = "", bestStaticScore = -1;
+  let bestMotionChar = "", bestMotionScore = -1;
 
-  let bestStaticChar = "", bestStaticDist = 999;
-  let bestMotionChar = "", bestMotionDist = 999;
+  for (const [char, cal] of Object.entries(calibrationData)) {
+    if (cal.hasMotion) {
+      // Motion sign: only evaluate when moving or recently moved
+      if (!moving && !recentlyMoved) continue;
 
-  for (const [char, data] of Object.entries(calibrationData)) {
-    const calFrames = data.frames;
+      const recentShapes = history.slice(-20).map(h => h.shape);
+      const recentPositions = history.slice(-20).map(h => h.position);
 
-    if (data.hasMotion) {
-      // Motion sign: match when moving OR recently moved
-      if (handMoving || recentlyMoved) {
-        const dist = dtwDistance(history.slice(-20), calFrames);
-        if (dist < bestMotionDist) {
-          bestMotionDist = dist;
-          bestMotionChar = char;
-        }
+      // Shape similarity (DTW)
+      let shapeSim = 0;
+      if (cal.shapes.length > 0) {
+        const d = dtwShape(recentShapes, cal.shapes);
+        shapeSim = Math.max(0, 1 - d / 0.8);
+      }
+
+      // Motion trajectory similarity
+      let motionSim = 0;
+      if (cal.positions.length > 0) {
+        const d = motionDistance(recentPositions, cal.positions);
+        motionSim = Math.max(0, 1 - d / 0.1);
+      }
+
+      // Orientation similarity (average over sequence)
+      let orientSim = 0;
+      if (cal.orientations.length > 0 && history.length > 0) {
+        const calMid = cal.orientations[Math.floor(cal.orientations.length / 2)];
+        const curOr = history[history.length - 1].orientation;
+        const d = orientationDistance(curOr, calMid);
+        orientSim = Math.max(0, 1 - d / 1.5);
+      }
+
+      // Weighted score
+      const score = shapeSim * 0.4 + motionSim * 0.4 + orientSim * 0.2;
+      if (score > bestMotionScore) {
+        bestMotionScore = score;
+        bestMotionChar = char;
       }
     } else {
-      // Static sign: match latest frame
-      const midIdx = Math.floor(calFrames.length / 2);
-      const dist = frameDistance(history[history.length - 1], calFrames[midIdx]);
-      if (dist < bestStaticDist) {
-        bestStaticDist = dist;
+      // Static sign: compare latest frame
+      const latest = history[history.length - 1];
+
+      // Shape similarity
+      let shapeSim = 0;
+      if (cal.shapes.length > 0) {
+        const midIdx = Math.floor(cal.shapes.length / 2);
+        const d = shapeDistance(latest.shape, cal.shapes[midIdx]);
+        shapeSim = Math.max(0, 1 - d / 0.5);
+      }
+
+      // Orientation similarity
+      let orientSim = 0;
+      if (cal.orientations.length > 0) {
+        const midIdx = Math.floor(cal.orientations.length / 2);
+        const d = orientationDistance(latest.orientation, cal.orientations[midIdx]);
+        orientSim = Math.max(0, 1 - d / 1.5);
+      }
+
+      // Weighted score (no motion component for static)
+      const score = shapeSim * 0.7 + orientSim * 0.3;
+      if (score > bestStaticScore) {
+        bestStaticScore = score;
         bestStaticChar = char;
       }
     }
   }
 
-  // When moving/recently moved: prefer motion match, fall back to static
-  if ((handMoving || recentlyMoved) && bestMotionChar && bestMotionDist < 0.6) {
-    const conf = Math.max(0, Math.min(100, Math.round((1 - bestMotionDist / 0.6) * 100)));
+  // Prefer motion match when moving
+  if ((moving || recentlyMoved) && bestMotionChar && bestMotionScore > 0.4) {
+    const conf = Math.round(bestMotionScore * 100);
     return [bestMotionChar, conf];
   }
 
-  if (bestStaticChar && bestStaticDist < 0.4) {
-    const conf = Math.max(0, Math.min(100, Math.round((1 - bestStaticDist / 0.4) * 100)));
+  if (bestStaticChar && bestStaticScore > 0.5) {
+    const conf = Math.round(bestStaticScore * 100);
     return [bestStaticChar, conf];
   }
 
@@ -259,7 +461,6 @@ function startCamera(videoEl, canvasEl) {
     height: 480,
   });
   camera.start();
-  // Store current canvas for drawing
   window._currentCanvas = canvasEl;
   window._currentVideo = videoEl;
 }
@@ -279,29 +480,29 @@ function onHandResults(results) {
     drawConnectors(ctx, landmarks, HAND_CONNECTIONS, {color: "#0f0", lineWidth: 2});
     drawLandmarks(ctx, landmarks, {color: "#0f0", lineWidth: 1, radius: 3});
 
-    const normalized = normalizeLandmarks(landmarks);
+    // Extract 3-axis features
+    const features = extractFeatures(landmarks);
 
     // Add to history
-    landmarkHistory.push(normalized);
-    while (landmarkHistory.length > HISTORY_MAX) landmarkHistory.shift();
+    featureHistory.push(features);
+    while (featureHistory.length > HISTORY_MAX) featureHistory.shift();
 
-    // Calibration recording — save both normalized AND raw landmarks
+    // Calibration recording
     if (calRecording && calCountdown <= 0) {
-      const raw = landmarks.map(lm => ({x: lm.x, y: lm.y, z: lm.z}));
-      calFrames.push(normalized);
-      if (!calRawFrames) calRawFrames = [];
-      calRawFrames.push(raw);
+      calShapes.push(features.shape);
+      calOrientations.push(features.orientation);
+      calPositions.push(features.position);
       const elapsed = (Date.now() - calStartTime) / 1000;
-      updateCalStatus(`🔴 録画中: ${calFrames.length}f (${(calDuration - elapsed).toFixed(1)}s)`);
+      updateCalStatus(`🔴 録画中: ${calShapes.length}f (${(calDuration - elapsed).toFixed(1)}s)`);
 
       if (elapsed >= calDuration) {
         finishCalRecording();
       }
     }
 
-    // Calibration test mode — show recognized sign live
+    // Calibration test mode
     if (currentScreen === "calibration-screen" && !calRecording) {
-      const [char, conf] = recognize(landmarkHistory);
+      const [char, conf] = recognize(featureHistory);
       if (char && conf > 20) {
         updateCalStatus(`認識: ${char} (${conf}%)`);
       } else {
@@ -311,9 +512,8 @@ function onHandResults(results) {
 
     // Game recognition
     if (currentScreen === "game-screen" && !gameWaiting) {
-      const [char, conf] = recognize(landmarkHistory);
+      const [char, conf] = recognize(featureHistory);
       if (char && conf > 30) {
-        // Require stable recognition (same char for 300ms)
         if (char === lastRecognized && Date.now() - lastRecognizedTime > 300) {
           onSignRecognized(char, conf);
         }
@@ -330,6 +530,9 @@ function onHandResults(results) {
   } else {
     if (currentScreen === "game-screen" && !gameWaiting) {
       updateGameStatus("手が見えません 👀");
+    }
+    if (currentScreen === "calibration-screen" && !calRecording) {
+      updateCalStatus("手が見えません 👀");
     }
   }
 }
@@ -361,19 +564,11 @@ function updateSignCount() {
 
 // ── Calibration ─────────────────────────────────────────────────────────────
 
-const SECTION_LABELS = {
-  0: "清音",
-  10: "濁音",
-  14: "半濁音",
-  15: "小書き",
-};
-
 function updateGojuonGrid() {
   const grid = document.getElementById("gojuon-grid");
   grid.innerHTML = "";
 
   for (let r = 0; r < GOJUON.length; r++) {
-    // Section headers
     if (SECTION_LABELS[r]) {
       const label = document.createElement("div");
       label.className = "gojuon-section";
@@ -405,19 +600,18 @@ function updateGojuonGrid() {
 
 function startCalRecording(char) {
   calChar = char;
-  calFrames = [];
-  calRawFrames = [];
+  calShapes = [];
+  calOrientations = [];
+  calPositions = [];
   calDuration = parseFloat(document.getElementById("cal-duration").value);
   calCountdown = 3;
   calRecording = true;
 
-  // Highlight button
   document.querySelectorAll(".gojuon-btn").forEach(b => b.classList.remove("recording"));
   document.querySelectorAll(".gojuon-btn").forEach(b => {
     if (b.textContent.startsWith(char)) b.classList.add("recording");
   });
 
-  // Countdown
   updateCalStatus(`${calCountdown}... 「${char}」の手の形を準備！`);
   const countInterval = setInterval(() => {
     calCountdown--;
@@ -433,54 +627,20 @@ function startCalRecording(char) {
 
 function finishCalRecording() {
   calRecording = false;
-  // Detect motion using raw frames (position-aware)
-  const hasMotion = detectMotionRaw(calRawFrames) || detectMotion(calFrames);
-  calibrationData[calChar] = { frames: calFrames, hasMotion };
+  const hasMotion = detectMotionFromPositions(calPositions) || detectMotionFromShapes(calShapes);
+  calibrationData[calChar] = {
+    shapes: calShapes,
+    orientations: calOrientations,
+    positions: calPositions,
+    hasMotion,
+  };
   saveCalibration();
 
   const typeStr = hasMotion ? "動き" : "静止";
-  updateCalStatus(`✅「${calChar}」録画完了！ (${typeStr}, ${calFrames.length}f)`);
+  updateCalStatus(`✅「${calChar}」録画完了！ (${typeStr}, ${calShapes.length}f)`);
 
   document.querySelectorAll(".gojuon-btn").forEach(b => b.classList.remove("recording"));
   updateGojuonGrid();
-}
-
-function detectMotionRaw(rawFrames) {
-  // Detect motion from raw (non-normalized) wrist position changes
-  if (!rawFrames || rawFrames.length < 5) return false;
-  let maxDist = 0;
-  const first = rawFrames[0][0]; // wrist of first frame
-  for (const f of rawFrames) {
-    const wrist = f[0];
-    const dx = wrist.x - first.x;
-    const dy = wrist.y - first.y;
-    const d = Math.sqrt(dx * dx + dy * dy);
-    if (d > maxDist) maxDist = d;
-  }
-  return maxDist > 0.05; // 5% of screen = significant movement
-}
-
-function detectMotion(frames) {
-  if (frames.length < 5) return false;
-  // Check normalized shape change
-  let maxShapeDist = 0;
-  for (const f of frames) {
-    const d = frameDistance(frames[0], f);
-    if (d > maxShapeDist) maxShapeDist = d;
-  }
-  // Also check wrist position change (raw position, landmark[0])
-  // Wrist is always {x:0, y:0} in normalized, but we can check
-  // the overall hand center movement by looking at landmark 9 (middle MCP)
-  // relative to first frame
-  let maxPosDist = 0;
-  for (const f of frames) {
-    const dx = f[9].x - frames[0][9].x;
-    const dy = f[9].y - frames[0][9].y;
-    const d = Math.sqrt(dx * dx + dy * dy);
-    if (d > maxPosDist) maxPosDist = d;
-  }
-  // Motion if shape changes OR significant position change
-  return maxShapeDist > 0.3 || maxPosDist > 0.3;
 }
 
 function updateCalStatus(text) {
@@ -501,7 +661,8 @@ function startGame(mode) {
   gameScore = 0;
   gameTotal = 0;
   gameWaiting = false;
-  landmarkHistory = [];
+  gamePaused = false;
+  featureHistory = [];
   lastRecognized = "";
 
   showScreen("game-screen");
@@ -511,7 +672,6 @@ function startGame(mode) {
   );
 
   if (mode === "word") {
-    // Filter words to only use calibrated chars
     const available = WORDS.filter(w =>
       [...w].every(c => calibrationData[c] || c === "　")
     );
@@ -540,7 +700,6 @@ function nextRandomChar() {
 
 function nextWordChar() {
   if (gameWordIndex >= gameWord.length) {
-    // Word complete!
     showBanner("🎉 " + gameWord, "correct");
     setTimeout(() => {
       const available = WORDS.filter(w =>
@@ -557,7 +716,6 @@ function nextWordChar() {
   gameTotal++;
   document.getElementById("prompt-char").textContent = gameCurrentChar;
 
-  // Show word progress
   let html = "";
   for (let i = 0; i < gameWord.length; i++) {
     if (i < gameWordIndex) html += `<span class="done">${gameWord[i]}</span>`;
@@ -636,8 +794,6 @@ function showResults() {
   setTimeout(() => endGame(), 4000);
 }
 
-let gamePaused = false;
-
 function endGame() {
   clearInterval(gameTimerInterval);
   gamePaused = false;
@@ -646,7 +802,6 @@ function endGame() {
 }
 
 function pauseToCalibration() {
-  // Pause game and go to calibration
   clearInterval(gameTimerInterval);
   gamePaused = true;
   showScreen("calibration-screen");
@@ -681,28 +836,44 @@ function updateGameStatus(text) {
 
 // ── Init ────────────────────────────────────────────────────────────────────
 
-// Load calibration: try localStorage first, then fetch calibration_data.json
 loadCalibration();
+
+// Auto-import v1 calibration_data.json if v2 is empty
 if (Object.keys(calibrationData).length === 0) {
-  // Try loading from file (for first-time migration from Godot version)
-  fetch("calibration_data.json")
-    .then(r => r.ok ? r.json() : null)
-    .then(data => {
-      if (data && Object.keys(data).length > 0) {
-        for (const [char, val] of Object.entries(data)) {
-          if (val.frames) {
-            calibrationData[char] = {
-              frames: val.frames,
-              hasMotion: val.hasMotion || val.has_motion || false,
-            };
-          }
+  // Try v1 localStorage
+  const v1data = localStorage.getItem("yubimoji-calibration");
+  if (v1data) {
+    try {
+      const parsed = JSON.parse(v1data);
+      for (const [char, val] of Object.entries(parsed)) {
+        if (val.frames) {
+          calibrationData[char] = migrateV1(char, val);
         }
-        saveCalibration();
-        updateSignCount();
-        console.log("Auto-imported calibration_data.json:", Object.keys(calibrationData).length, "signs");
       }
-    })
-    .catch(() => {});
+      saveCalibration();
+      console.log("Migrated v1 calibration:", Object.keys(calibrationData).length, "signs");
+    } catch (e) {}
+  }
+  // Try file
+  if (Object.keys(calibrationData).length === 0) {
+    fetch("calibration_data.json")
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data && Object.keys(data).length > 0) {
+          for (const [char, val] of Object.entries(data)) {
+            if (val.shapes) {
+              calibrationData[char] = val;
+            } else if (val.frames) {
+              calibrationData[char] = migrateV1(char, val);
+            }
+          }
+          saveCalibration();
+          updateSignCount();
+        }
+      })
+      .catch(() => {});
+  }
 }
+
 initHands();
 updateSignCount();
