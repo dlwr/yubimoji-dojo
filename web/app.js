@@ -153,7 +153,7 @@ function motionDistance(seqA, seqB) {
 }
 
 function dtwPositions(seqA, seqB) {
-  const MAX = 25;
+  const MAX = 15;
   if (seqA.length > MAX) {
     const step = (seqA.length - 1) / (MAX - 1);
     seqA = Array.from({length: MAX}, (_, i) => seqA[Math.round(i * step)]);
@@ -183,7 +183,7 @@ function dtwPositions(seqA, seqB) {
 // ── DTW for shape sequences ─────────────────────────────────────────────────
 
 function dtwShape(seqA, seqB) {
-  const MAX = 25;
+  const MAX = 15;
   if (seqA.length > MAX) {
     const step = (seqA.length - 1) / (MAX - 1);
     seqA = Array.from({length: MAX}, (_, i) => seqA[Math.round(i * step)]);
@@ -239,6 +239,7 @@ const HISTORY_MAX = 30;
 let featureHistory = [];  // list of {shape, orientation, position}
 let lastRecognized = "";
 let lastRecognizedTime = 0;
+let recognizeCounter = 0;
 
 // ── Persistence ─────────────────────────────────────────────────────────────
 
@@ -500,8 +501,12 @@ function onHandResults(results) {
       }
     }
 
+    // Throttle recognition (every 3rd frame to reduce DTW load)
+    recognizeCounter++;
+    const shouldRecognize = recognizeCounter % 3 === 0;
+
     // Calibration test mode
-    if (currentScreen === "calibration-screen" && !calRecording) {
+    if (currentScreen === "calibration-screen" && !calRecording && shouldRecognize) {
       const [char, conf] = recognize(featureHistory);
       if (char && conf > 20) {
         updateCalStatus(`認識: ${char} (${conf}%)`);
@@ -511,7 +516,7 @@ function onHandResults(results) {
     }
 
     // Game recognition
-    if (currentScreen === "game-screen" && !gameWaiting) {
+    if (currentScreen === "game-screen" && !gameWaiting && shouldRecognize) {
       const [char, conf] = recognize(featureHistory);
       if (char && conf > 30) {
         if (char === lastRecognized && Date.now() - lastRecognizedTime > 300) {
