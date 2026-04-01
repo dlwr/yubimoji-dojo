@@ -458,8 +458,17 @@ function recognize(history) {
         orientSim = Math.max(0, 1 - d / 1.5);
       }
 
-      // Weighted score
-      const score = shapeSim * 0.4 + motionSim * 0.4 + orientSim * 0.2;
+      // Weighted score — adapt if orientation/position data missing
+      const hasOrient = cal.orientations && cal.orientations.length > 0;
+      const hasPos = cal.positions && cal.positions.length > 0;
+      let score;
+      if (hasOrient && hasPos) {
+        score = shapeSim * 0.4 + motionSim * 0.4 + orientSim * 0.2;
+      } else if (hasPos) {
+        score = shapeSim * 0.5 + motionSim * 0.5;
+      } else {
+        score = shapeSim;
+      }
       if (score > bestMotionScore) {
         bestMotionScore = score;
         bestMotionChar = char;
@@ -484,8 +493,11 @@ function recognize(history) {
         orientSim = Math.max(0, 1 - d / 1.5);
       }
 
-      // Weighted score (no motion component for static)
-      const score = shapeSim * 0.7 + orientSim * 0.3;
+      // Weighted score — if no orientation data, use shape only
+      const hasOrient = cal.orientations && cal.orientations.length > 0;
+      const score = hasOrient
+        ? shapeSim * 0.7 + orientSim * 0.3
+        : shapeSim;
       if (score > bestStaticScore) {
         bestStaticScore = score;
         bestStaticChar = char;
@@ -494,12 +506,12 @@ function recognize(history) {
   }
 
   // Prefer motion match when moving
-  if ((moving || recentlyMoved) && bestMotionChar && bestMotionScore > 0.4) {
+  if ((moving || recentlyMoved) && bestMotionChar && bestMotionScore > 0.3) {
     const conf = Math.round(bestMotionScore * 100);
     return [bestMotionChar, conf];
   }
 
-  if (bestStaticChar && bestStaticScore > 0.5) {
+  if (bestStaticChar && bestStaticScore > 0.4) {
     const conf = Math.round(bestStaticScore * 100);
     return [bestStaticChar, conf];
   }
