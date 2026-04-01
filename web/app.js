@@ -557,6 +557,28 @@ function updateGameStatus(text) {
 
 // ── Init ────────────────────────────────────────────────────────────────────
 
+// Load calibration: try localStorage first, then fetch calibration_data.json
 loadCalibration();
+if (Object.keys(calibrationData).length === 0) {
+  // Try loading from file (for first-time migration from Godot version)
+  fetch("../tools/calibration_data.json")
+    .then(r => r.ok ? r.json() : null)
+    .then(data => {
+      if (data && Object.keys(data).length > 0) {
+        for (const [char, val] of Object.entries(data)) {
+          if (val.frames) {
+            calibrationData[char] = {
+              frames: val.frames,
+              hasMotion: val.hasMotion || val.has_motion || false,
+            };
+          }
+        }
+        saveCalibration();
+        updateSignCount();
+        console.log("Auto-imported calibration_data.json:", Object.keys(calibrationData).length, "signs");
+      }
+    })
+    .catch(() => {});
+}
 initHands();
 updateSignCount();
