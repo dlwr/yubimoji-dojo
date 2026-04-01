@@ -59,6 +59,7 @@ let calFrames = [];
 let calCountdown = 0;
 let calStartTime = 0;
 let calDuration = 2;
+let calRawFrames = [];
 
 // Recognition
 const HISTORY_MAX = 30;
@@ -252,9 +253,12 @@ function onHandResults(results) {
     landmarkHistory.push(normalized);
     while (landmarkHistory.length > HISTORY_MAX) landmarkHistory.shift();
 
-    // Calibration recording
+    // Calibration recording — save both normalized AND raw landmarks
     if (calRecording && calCountdown <= 0) {
+      const raw = landmarks.map(lm => ({x: lm.x, y: lm.y, z: lm.z}));
       calFrames.push(normalized);
+      if (!calRawFrames) calRawFrames = [];
+      calRawFrames.push(raw);
       const elapsed = (Date.now() - calStartTime) / 1000;
       updateCalStatus(`🔴 録画中: ${calFrames.length}f (${(calDuration - elapsed).toFixed(1)}s)`);
 
@@ -360,6 +364,7 @@ function updateGojuonGrid() {
 function startCalRecording(char) {
   calChar = char;
   calFrames = [];
+  calRawFrames = [];
   calDuration = parseFloat(document.getElementById("cal-duration").value);
   calCountdown = 3;
   calRecording = true;
@@ -386,7 +391,8 @@ function startCalRecording(char) {
 
 function finishCalRecording() {
   calRecording = false;
-  const hasMotion = detectMotion(calFrames);
+  // Detect motion using raw frames (position-aware)
+  const hasMotion = detectMotionRaw(calRawFrames) || detectMotion(calFrames);
   calibrationData[calChar] = { frames: calFrames, hasMotion };
   saveCalibration();
 
@@ -397,14 +403,42 @@ function finishCalRecording() {
   updateGojuonGrid();
 }
 
-function detectMotion(frames) {
-  if (frames.length < 5) return false;
+function detectMotionRaw(rawFrames) {
+  // Detect motion from raw (non-normalized) wrist position changes
+  if (!rawFrames || rawFrames.length < 5) return false;
   let maxDist = 0;
-  for (const f of frames) {
-    const d = frameDistance(frames[0], f);
+  const first = rawFrames[0][0]; // wrist of first frame
+  for (const f of rawFrames) {
+    const wrist = f[0];
+    const dx = wrist.x - first.x;
+    const dy = wrist.y - first.y;
+    const d = Math.sqrt(dx * dx + dy * dy);
     if (d > maxDist) maxDist = d;
   }
-  return maxDist > 0.4;
+  return maxDist > 0.05; // 5% of screen = significant movement
+}
+
+function detectMotion(frames) {
+  if (frames.length < 5) return false;
+  // Check normalized shape change
+  let maxShapeDist = 0;
+  for (const f of frames) {
+    const d = frameDistance(frames[0], f);
+    if (d > maxShapeDist) maxShapeDist = d;
+  }
+  // Also check wrist position change (raw position, landmark[0])
+  // Wrist is always {x:0, y:0} in normalized, but we can check
+  // the overall hand center movement by looking at landmark 9 (middle MCP)
+  // relative to first frame
+  let maxPosDist = 0;
+  for (const f of frames) {
+    const dx = f[9].x - frames[0][9].x;
+    const dy = f[9].y - frames[0][9].y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d > maxPosDist) maxPosDist = d;
+  }
+  // Motion if shape changes OR significant position change
+  return maxShapeDist > 0.3 || maxPosDist > 0.3;
 }
 
 function updateCalStatus(text) {

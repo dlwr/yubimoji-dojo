@@ -217,10 +217,18 @@ body {
 }
 
 .cal-controls {
+  position: sticky;
+  top: 0;
+  z-index: 5;
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
   align-items: center;
+  background: var(--bg);
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid #333;
+  margin-bottom: 8px;
 }
 .cal-controls select, .cal-controls button {
   padding: 8px 12px;
