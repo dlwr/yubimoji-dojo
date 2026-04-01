@@ -243,24 +243,83 @@ let recognizeCounter = 0;
 
 // ── Persistence ─────────────────────────────────────────────────────────────
 
-function saveCalibration() {
-  updateCalStatus("💾 保存中...");
-  setTimeout(() => {
-    try {
-      localStorage.setItem("yubimoji-calibration-v2", JSON.stringify(calibrationData));
-      updateCalStatus("💾 保存完了 ✓");
-    } catch (e) {
-      console.warn("Save failed:", e);
-      updateCalStatus("⚠️ 保存失敗: " + e.message);
-    }
-  }, 0);
+// ── IndexedDB Storage (no size limit) ───────────────────────────────────────
+
+const DB_NAME = "yubimoji-dojo";
+const DB_STORE = "calibration";
+const DB_VERSION = 1;
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(DB_STORE)) {
+        db.createObjectStore(DB_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
 }
 
-function loadCalibration() {
-  const data = localStorage.getItem("yubimoji-calibration-v2");
-  if (data) {
-    calibrationData = JSON.parse(data);
-    console.log("Loaded calibration v2:", Object.keys(calibrationData).length, "signs");
+async function saveCalibration() {
+  updateCalStatus("💾 保存中...");
+  try {
+    const db = await openDB();
+    const tx = db.transaction(DB_STORE, "readwrite");
+    const store = tx.objectStore(DB_STORE);
+    store.put(calibrationData, "data");
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+    updateCalStatus("💾 保存完了 ✓");
+    console.log("Saved to IndexedDB:", Object.keys(calibrationData).length, "signs");
+  } catch (e) {
+    console.warn("Save failed:", e);
+    updateCalStatus("⚠️ 保存失敗: " + e.message);
+  }
+}
+
+async function loadCalibration() {
+  try {
+    const db = await openDB();
+    const tx = db.transaction(DB_STORE, "readonly");
+    const store = tx.objectStore(DB_STORE);
+    const req = store.get("data");
+    const data = await new Promise((resolve, reject) => {
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    if (data && Object.keys(data).length > 0) {
+      calibrationData = data;
+      console.log("Loaded from IndexedDB:", Object.keys(calibrationData).length, "signs");
+      return;
+    }
+  } catch (e) {
+    console.warn("IndexedDB load failed:", e);
+  }
+
+  // Fallback: migrate from localStorage
+  const lsData = localStorage.getItem("yubimoji-calibration-v2") ||
+                  localStorage.getItem("yubimoji-calibration");
+  if (lsData) {
+    try {
+      const parsed = JSON.parse(lsData);
+      for (const [char, val] of Object.entries(parsed)) {
+        if (val.shapes) {
+          calibrationData[char] = val;
+        } else if (val.frames) {
+          calibrationData[char] = migrateV1(char, val);
+        }
+      }
+      console.log("Migrated from localStorage:", Object.keys(calibrationData).length, "signs");
+      // Save to IndexedDB and clean up localStorage
+      await saveCalibration();
+      localStorage.removeItem("yubimoji-calibration-v2");
+      localStorage.removeItem("yubimoji-calibration");
+    } catch (e) {}
   }
 }
 
@@ -856,44 +915,29 @@ function updateGameStatus(text) {
 
 // ── Init ────────────────────────────────────────────────────────────────────
 
-loadCalibration();
+async function init() {
+  await loadCalibration();
 
-// Auto-import v1 calibration_data.json if v2 is empty
-if (Object.keys(calibrationData).length === 0) {
-  // Try v1 localStorage
-  const v1data = localStorage.getItem("yubimoji-calibration");
-  if (v1data) {
+  // Auto-import from file if empty
+  if (Object.keys(calibrationData).length === 0) {
     try {
-      const parsed = JSON.parse(v1data);
-      for (const [char, val] of Object.entries(parsed)) {
-        if (val.frames) {
-          calibrationData[char] = migrateV1(char, val);
+      const r = await fetch("calibration_data.json");
+      if (r.ok) {
+        const data = await r.json();
+        for (const [char, val] of Object.entries(data)) {
+          if (val.shapes) {
+            calibrationData[char] = val;
+          } else if (val.frames) {
+            calibrationData[char] = migrateV1(char, val);
+          }
         }
+        await saveCalibration();
       }
-      saveCalibration();
-      console.log("Migrated v1 calibration:", Object.keys(calibrationData).length, "signs");
     } catch (e) {}
   }
-  // Try file
-  if (Object.keys(calibrationData).length === 0) {
-    fetch("calibration_data.json")
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (data && Object.keys(data).length > 0) {
-          for (const [char, val] of Object.entries(data)) {
-            if (val.shapes) {
-              calibrationData[char] = val;
-            } else if (val.frames) {
-              calibrationData[char] = migrateV1(char, val);
-            }
-          }
-          saveCalibration();
-          updateSignCount();
-        }
-      })
-      .catch(() => {});
-  }
+
+  initHands();
+  updateSignCount();
 }
 
-initHands();
-updateSignCount();
+init();
