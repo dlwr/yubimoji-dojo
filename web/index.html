@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>指文字道場</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <!-- Title Screen -->
+  <div id="title-screen" class="screen active">
+    <h1>指文字道場</h1>
+    <p class="subtitle">〜 カメラで指文字を練習しよう 〜</p>
+    <div class="menu">
+      <button onclick="startGame('random')">🎯 ランダム練習</button>
+      <button onclick="startGame('word')">📝 単語モード</button>
+      <button onclick="showScreen('calibration-screen')">🔧 キャリブレーション</button>
+    </div>
+    <p class="sign-count" id="sign-count"></p>
+  </div>
+
+  <!-- Game Screen -->
+  <div id="game-screen" class="screen">
+    <div class="game-top">
+      <button class="back-btn" onclick="endGame()">← 戻る</button>
+      <span id="score">0 / 0</span>
+      <span id="timer">10</span>
+    </div>
+    <div class="game-main">
+      <div class="camera-box">
+        <video id="game-video" autoplay playsinline></video>
+        <canvas id="game-canvas"></canvas>
+        <div id="game-status" class="status">カメラ起動中...</div>
+      </div>
+      <div class="prompt-box">
+        <div class="prompt-label">この指文字を作ろう</div>
+        <div id="prompt-char" class="prompt-char">あ</div>
+        <div id="word-progress" class="word-progress"></div>
+      </div>
+    </div>
+    <div id="result-banner" class="result-banner hidden"></div>
+  </div>
+
+  <!-- Calibration Screen -->
+  <div id="calibration-screen" class="screen">
+    <div class="cal-header">
+      <button class="back-btn" onclick="showScreen('title-screen')">← 戻る</button>
+      <h2>キャリブレーション</h2>
+    </div>
+    <div class="cal-main">
+      <div class="camera-box">
+        <video id="cal-video" autoplay playsinline></video>
+        <canvas id="cal-canvas"></canvas>
+        <div id="cal-status" class="status">カメラ起動中...</div>
+      </div>
+      <div class="gojuon-panel">
+        <div id="gojuon-grid" class="gojuon-grid"></div>
+        <div class="cal-controls">
+          <label>録画時間:
+            <select id="cal-duration">
+              <option value="1">1秒 (静止)</option>
+              <option value="2" selected>2秒</option>
+              <option value="3">3秒 (動き)</option>
+            </select>
+          </label>
+          <button id="cal-export-btn" onclick="exportCalibration()">💾 エクスポート</button>
+          <label class="import-label">📂 インポート
+            <input type="file" id="cal-import" accept=".json" onchange="importCalibration(event)" hidden>
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1675466124/drawing_utils.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

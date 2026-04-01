@@ -1,0 +1,254 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #1a1a2e;
+  --bg2: #16213e;
+  --accent: #f4a261;
+  --accent2: #e9c46a;
+  --accent3: #e76f51;
+  --text: #eee;
+  --dim: #888;
+  --success: #2ecc71;
+  --fail: #e74c3c;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Hiragino Kaku Gothic Pro", "Noto Sans JP", sans-serif;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+.screen { display: none; height: 100vh; }
+.screen.active { display: flex; flex-direction: column; }
+
+/* ── Title ── */
+#title-screen {
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+}
+#title-screen h1 {
+  font-size: 64px;
+  color: var(--accent);
+  text-shadow: 0 0 40px rgba(244, 162, 97, 0.3);
+}
+.subtitle { color: var(--accent2); font-size: 20px; }
+.menu { display: flex; flex-direction: column; gap: 12px; margin-top: 20px; }
+.menu button {
+  background: var(--bg2);
+  border: 2px solid var(--accent);
+  color: var(--accent);
+  padding: 16px 40px;
+  font-size: 22px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.menu button:hover {
+  background: var(--accent);
+  color: var(--bg);
+}
+.sign-count { color: var(--dim); margin-top: 16px; }
+
+/* ── Game ── */
+.game-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 20px;
+  background: var(--bg2);
+}
+#score { color: var(--accent); font-size: 24px; }
+#timer { color: var(--accent2); font-size: 24px; font-weight: bold; }
+
+.game-main {
+  flex: 1;
+  display: flex;
+  gap: 20px;
+  padding: 20px;
+  overflow: hidden;
+}
+
+.camera-box {
+  position: relative;
+  flex: 1.2;
+  background: #000;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.camera-box video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+.camera-box canvas {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%;
+  height: 100%;
+  transform: scaleX(-1);
+}
+.status {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.7);
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 14px;
+  color: var(--accent2);
+}
+
+.prompt-box {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+.prompt-label { color: var(--dim); font-size: 20px; }
+.prompt-char {
+  font-size: 180px;
+  color: var(--accent);
+  line-height: 1;
+  text-shadow: 0 0 60px rgba(244, 162, 97, 0.4);
+}
+.word-progress {
+  font-size: 36px;
+  letter-spacing: 8px;
+  color: var(--dim);
+  min-height: 50px;
+}
+.word-progress .done { color: var(--success); }
+.word-progress .current { color: var(--accent); font-weight: bold; text-decoration: underline; }
+
+.result-banner {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 64px;
+  padding: 20px 60px;
+  border-radius: 16px;
+  z-index: 10;
+  animation: pop 0.3s ease;
+}
+.result-banner.hidden { display: none; }
+.result-banner.correct { background: var(--success); color: #fff; }
+.result-banner.incorrect { background: var(--fail); color: #fff; }
+@keyframes pop {
+  0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+  100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+}
+
+/* ── Calibration ── */
+.cal-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 20px;
+  background: var(--bg2);
+}
+.cal-header h2 { color: var(--accent); }
+
+.cal-main {
+  flex: 1;
+  display: flex;
+  gap: 20px;
+  padding: 20px;
+  overflow: hidden;
+}
+
+.gojuon-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+.gojuon-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+.gojuon-btn {
+  aspect-ratio: 1;
+  font-size: 24px;
+  border: 2px solid #333;
+  background: var(--bg2);
+  color: var(--text);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+}
+.gojuon-btn:hover { border-color: var(--accent); }
+.gojuon-btn.recorded {
+  border-color: var(--success);
+  background: rgba(46, 204, 113, 0.15);
+}
+.gojuon-btn.recording {
+  border-color: var(--accent3);
+  background: rgba(231, 111, 81, 0.3);
+  animation: pulse 0.5s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.gojuon-btn .type-badge {
+  position: absolute;
+  top: 2px; right: 2px;
+  font-size: 10px;
+}
+
+.cal-controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.cal-controls select, .cal-controls button {
+  padding: 8px 12px;
+  font-size: 14px;
+  border-radius: 4px;
+  border: 1px solid #444;
+  background: var(--bg2);
+  color: var(--text);
+  cursor: pointer;
+}
+.cal-controls button:hover { background: var(--accent); color: var(--bg); }
+.import-label {
+  padding: 8px 12px;
+  font-size: 14px;
+  border-radius: 4px;
+  border: 1px solid #444;
+  background: var(--bg2);
+  cursor: pointer;
+}
+.import-label:hover { background: var(--accent); color: var(--bg); }
+
+.back-btn {
+  background: none;
+  border: 1px solid #555;
+  color: var(--text);
+  padding: 6px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+}
+.back-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Mobile ── */
+@media (max-width: 768px) {
+  #title-screen h1 { font-size: 40px; }
+  .game-main, .cal-main { flex-direction: column; }
+  .prompt-char { font-size: 100px; }
+  .gojuon-grid { grid-template-columns: repeat(5, 1fr); }
+  .gojuon-btn { font-size: 18px; }
+}
