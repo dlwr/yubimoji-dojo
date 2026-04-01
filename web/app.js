@@ -244,7 +244,14 @@ let recognizeCounter = 0;
 // ── Persistence ─────────────────────────────────────────────────────────────
 
 function saveCalibration() {
-  localStorage.setItem("yubimoji-calibration-v2", JSON.stringify(calibrationData));
+  // Defer to avoid blocking UI
+  setTimeout(() => {
+    try {
+      localStorage.setItem("yubimoji-calibration-v2", JSON.stringify(calibrationData));
+    } catch (e) {
+      console.warn("Save failed:", e);
+    }
+  }, 0);
 }
 
 function loadCalibration() {
@@ -632,20 +639,23 @@ function startCalRecording(char) {
 
 function finishCalRecording() {
   calRecording = false;
-  const hasMotion = detectMotionFromPositions(calPositions) || detectMotionFromShapes(calShapes);
-  calibrationData[calChar] = {
-    shapes: calShapes,
-    orientations: calOrientations,
-    positions: calPositions,
-    hasMotion,
-  };
-  saveCalibration();
+  // Use requestAnimationFrame to ensure UI updates before heavy save
+  requestAnimationFrame(() => {
+    const hasMotion = detectMotionFromPositions(calPositions) || detectMotionFromShapes(calShapes);
+    calibrationData[calChar] = {
+      shapes: calShapes,
+      orientations: calOrientations,
+      positions: calPositions,
+      hasMotion,
+    };
+    saveCalibration();
 
-  const typeStr = hasMotion ? "動き" : "静止";
-  updateCalStatus(`✅「${calChar}」録画完了！ (${typeStr}, ${calShapes.length}f)`);
+    const typeStr = hasMotion ? "動き" : "静止";
+    updateCalStatus(`✅「${calChar}」録画完了！ (${typeStr}, ${calShapes.length}f)`);
 
-  document.querySelectorAll(".gojuon-btn").forEach(b => b.classList.remove("recording"));
-  updateGojuonGrid();
+    document.querySelectorAll(".gojuon-btn").forEach(b => b.classList.remove("recording"));
+    updateGojuonGrid();
+  });
 }
 
 function updateCalStatus(text) {
