@@ -586,17 +586,27 @@ function onHandResults(results) {
     // Game recognition
     if (currentScreen === "game-screen" && !gameWaiting && shouldRecognize) {
       const [char, conf] = recognize(featureHistory);
+      const now = Date.now();
+
       if (char && conf > 30) {
-        if (char === lastRecognized && Date.now() - lastRecognizedTime > 300) {
-          onSignRecognized(char, conf);
-        }
-        if (char !== lastRecognized) {
+        if (char === lastRecognized) {
+          // Same char sustained → trigger after 300ms
+          if (now - lastRecognizedTime > 300) {
+            onSignRecognized(char, conf);
+          }
+        } else if (now - lastRecognizedTime > 500) {
+          // Different char, but only switch if 500ms since last recognition
+          // This prevents "が" flickering to "か" immediately
           lastRecognized = char;
-          lastRecognizedTime = Date.now();
+          lastRecognizedTime = now;
         }
-        updateGameStatus(`認識: ${char} (${conf}%)`);
+        // If within 500ms holdoff and char differs, keep showing last recognized
+        updateGameStatus(`認識: ${lastRecognized} (${conf}%)`);
       } else {
-        lastRecognized = "";
+        // No recognition — only clear after holdoff period
+        if (now - lastRecognizedTime > 800) {
+          lastRecognized = "";
+        }
         updateGameStatus("手を検出中... ✋");
       }
     }
