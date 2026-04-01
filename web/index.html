@@ -24,6 +24,7 @@
   <div id="game-screen" class="screen">
     <div class="game-top">
       <button class="back-btn" onclick="endGame()">← 戻る</button>
+      <button class="back-btn" onclick="pauseToCalibration()">🔧 修正</button>
       <span id="score">0 / 0</span>
       <span id="timer">10</span>
     </div>
@@ -45,7 +46,7 @@
   <!-- Calibration Screen -->
   <div id="calibration-screen" class="screen">
     <div class="cal-header">
-      <button class="back-btn" onclick="showScreen('title-screen')">← 戻る</button>
+      <button class="back-btn" onclick="gamePaused ? resumeGame() : showScreen('title-screen')">← 戻る</button>
       <h2>キャリブレーション</h2>
     </div>
     <div class="cal-main">

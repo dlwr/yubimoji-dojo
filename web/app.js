@@ -174,33 +174,61 @@ function dtwDistance(seqA, seqB) {
 
 // ── Recognition ─────────────────────────────────────────────────────────────
 
+function isHandMoving(history) {
+  // Check if hand has significant movement in recent frames
+  if (history.length < 5) return false;
+  const recent = history.slice(-10);
+  let maxDist = 0;
+  for (const f of recent) {
+    const d = frameDistance(recent[0], f);
+    if (d > maxDist) maxDist = d;
+  }
+  return maxDist > 0.25;
+}
+
 function recognize(history) {
   if (!Object.keys(calibrationData).length || !history.length) return ["", 0];
 
+  const handMoving = isHandMoving(history);
+
   let bestChar = "", bestDist = 999;
+  let bestStaticChar = "", bestStaticDist = 999;
+  let bestMotionChar = "", bestMotionDist = 999;
 
   for (const [char, data] of Object.entries(calibrationData)) {
     const calFrames = data.frames;
-    let dist;
 
     if (data.hasMotion) {
-      dist = dtwDistance(history, calFrames);
+      // Motion sign: only match when hand is moving
+      if (handMoving) {
+        const dist = dtwDistance(history, calFrames);
+        if (dist < bestMotionDist) {
+          bestMotionDist = dist;
+          bestMotionChar = char;
+        }
+      }
     } else {
+      // Static sign: match latest frame
       const midIdx = Math.floor(calFrames.length / 2);
-      dist = frameDistance(history[history.length - 1], calFrames[midIdx]);
-    }
-
-    if (dist < bestDist) {
-      bestDist = dist;
-      bestChar = char;
+      const dist = frameDistance(history[history.length - 1], calFrames[midIdx]);
+      if (dist < bestStaticDist) {
+        bestStaticDist = dist;
+        bestStaticChar = char;
+      }
     }
   }
 
-  const threshold = calibrationData[bestChar]?.hasMotion ? 0.6 : 0.4;
-  if (bestDist < threshold) {
-    const confidence = Math.max(0, Math.min(100, Math.round((1 - bestDist / threshold) * 100)));
-    return [bestChar, confidence];
+  // Pick best match: prefer static when not moving, motion when moving
+  if (handMoving && bestMotionChar && bestMotionDist < 0.6) {
+    const conf = Math.max(0, Math.min(100, Math.round((1 - bestMotionDist / 0.6) * 100)));
+    return [bestMotionChar, conf];
   }
+
+  if (bestStaticChar && bestStaticDist < 0.4) {
+    const conf = Math.max(0, Math.min(100, Math.round((1 - bestStaticDist / 0.4) * 100)));
+    return [bestStaticChar, conf];
+  }
+
   return ["", 0];
 }
 
@@ -264,6 +292,16 @@ function onHandResults(results) {
 
       if (elapsed >= calDuration) {
         finishCalRecording();
+      }
+    }
+
+    // Calibration test mode — show recognized sign live
+    if (currentScreen === "calibration-screen" && !calRecording) {
+      const [char, conf] = recognize(landmarkHistory);
+      if (char && conf > 20) {
+        updateCalStatus(`認識: ${char} (${conf}%)`);
+      } else {
+        updateCalStatus("✋ 手を出すと認識テスト");
       }
     }
 
@@ -594,10 +632,32 @@ function showResults() {
   setTimeout(() => endGame(), 4000);
 }
 
+let gamePaused = false;
+
 function endGame() {
   clearInterval(gameTimerInterval);
+  gamePaused = false;
   if (camera) camera.stop();
   showScreen("title-screen");
+}
+
+function pauseToCalibration() {
+  // Pause game and go to calibration
+  clearInterval(gameTimerInterval);
+  gamePaused = true;
+  showScreen("calibration-screen");
+}
+
+function resumeGame() {
+  if (gamePaused) {
+    gamePaused = false;
+    showScreen("game-screen");
+    startCamera(
+      document.getElementById("game-video"),
+      document.getElementById("game-canvas")
+    );
+    startTimer();
+  }
 }
 
 function showBanner(text, type) {
