@@ -39,8 +39,9 @@ func _ready() -> void:
 	# Start hand detection polling
 	hand_detector.start()
 
-	# Start first question
-	_next_question()
+	# Fetch calibrated characters, then start first question
+	status_label.text = "登録済み文字を読み込み中..."
+	GameManager.fetch_characters(func(): _next_question())
 
 func _fetch_frame() -> void:
 	if _frame_request.get_http_client_status() != HTTPClient.STATUS_DISCONNECTED:
