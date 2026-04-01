@@ -561,7 +561,7 @@ function updateGameStatus(text) {
 loadCalibration();
 if (Object.keys(calibrationData).length === 0) {
   // Try loading from file (for first-time migration from Godot version)
-  fetch("../tools/calibration_data.json")
+  fetch("calibration_data.json")
     .then(r => r.ok ? r.json() : null)
     .then(data => {
       if (data && Object.keys(data).length > 0) {
