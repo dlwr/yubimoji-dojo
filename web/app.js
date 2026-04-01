@@ -2,6 +2,7 @@
 
 // 50音表
 const GOJUON = [
+  // 清音
   ["あ","い","う","え","お"],
   ["か","き","く","け","こ"],
   ["さ","し","す","せ","そ"],
@@ -12,6 +13,25 @@ const GOJUON = [
   ["や","　","ゆ","　","よ"],
   ["ら","り","る","れ","ろ"],
   ["わ","を","ん","ー","　"],
+  // 濁音
+  ["が","ぎ","ぐ","げ","ご"],
+  ["ざ","じ","ず","ぜ","ぞ"],
+  ["だ","ぢ","づ","で","ど"],
+  ["ば","び","ぶ","べ","ぼ"],
+  // 半濁音
+  ["ぱ","ぴ","ぷ","ぺ","ぽ"],
+  // 拗音
+  ["きゃ","きゅ","きょ","　","　"],
+  ["しゃ","しゅ","しょ","　","　"],
+  ["ちゃ","ちゅ","ちょ","　","　"],
+  ["にゃ","にゅ","にょ","　","　"],
+  ["ひゃ","ひゅ","ひょ","　","　"],
+  ["みゃ","みゅ","みょ","　","　"],
+  ["りゃ","りゅ","りょ","　","　"],
+  ["ぎゃ","ぎゅ","ぎょ","　","　"],
+  ["じゃ","じゅ","じょ","　","　"],
+  ["びゃ","びゅ","びょ","　","　"],
+  ["ぴゃ","ぴゅ","ぴょ","　","　"],
 ];
 
 const WORDS = [
@@ -304,12 +324,27 @@ function updateSignCount() {
 
 // ── Calibration ─────────────────────────────────────────────────────────────
 
+const SECTION_LABELS = {
+  0: "清音",
+  10: "濁音",
+  14: "半濁音",
+  15: "拗音",
+};
+
 function updateGojuonGrid() {
   const grid = document.getElementById("gojuon-grid");
   grid.innerHTML = "";
 
-  for (const row of GOJUON) {
-    for (const char of row) {
+  for (let r = 0; r < GOJUON.length; r++) {
+    // Section headers
+    if (SECTION_LABELS[r]) {
+      const label = document.createElement("div");
+      label.className = "gojuon-section";
+      label.textContent = SECTION_LABELS[r];
+      grid.appendChild(label);
+    }
+
+    for (const char of GOJUON[r]) {
       const btn = document.createElement("button");
       btn.className = "gojuon-btn";
       btn.textContent = char;

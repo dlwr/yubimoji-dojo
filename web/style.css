@@ -206,6 +206,15 @@ body {
   top: 2px; right: 2px;
   font-size: 10px;
 }
+.gojuon-section {
+  grid-column: 1 / -1;
+  color: var(--accent2);
+  font-size: 14px;
+  font-weight: bold;
+  padding: 8px 0 4px;
+  border-top: 1px solid #333;
+  margin-top: 8px;
+}
 
 .cal-controls {
   display: flex;
