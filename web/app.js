@@ -177,13 +177,15 @@ function dtwDistance(seqA, seqB) {
 function isHandMoving(history) {
   // Check if hand has significant movement in recent frames
   if (history.length < 5) return false;
-  const recent = history.slice(-10);
+  const recent = history.slice(-15);
   let maxDist = 0;
-  for (const f of recent) {
-    const d = frameDistance(recent[0], f);
+  for (let i = 1; i < recent.length; i++) {
+    const d = frameDistance(recent[i - 1], recent[i]);
     if (d > maxDist) maxDist = d;
   }
-  return maxDist > 0.25;
+  // Also check overall displacement
+  const totalDist = frameDistance(recent[0], recent[recent.length - 1]);
+  return maxDist > 0.1 || totalDist > 0.15;
 }
 
 function recognize(history) {
@@ -191,7 +193,9 @@ function recognize(history) {
 
   const handMoving = isHandMoving(history);
 
-  let bestChar = "", bestDist = 999;
+  // Track if hand moved recently (within last ~1 second)
+  const recentlyMoved = history.length >= 15 && isHandMoving(history.slice(-20));
+
   let bestStaticChar = "", bestStaticDist = 999;
   let bestMotionChar = "", bestMotionDist = 999;
 
@@ -199,9 +203,9 @@ function recognize(history) {
     const calFrames = data.frames;
 
     if (data.hasMotion) {
-      // Motion sign: only match when hand is moving
-      if (handMoving) {
-        const dist = dtwDistance(history, calFrames);
+      // Motion sign: match when moving OR recently moved
+      if (handMoving || recentlyMoved) {
+        const dist = dtwDistance(history.slice(-20), calFrames);
         if (dist < bestMotionDist) {
           bestMotionDist = dist;
           bestMotionChar = char;
@@ -218,8 +222,8 @@ function recognize(history) {
     }
   }
 
-  // Pick best match: prefer static when not moving, motion when moving
-  if (handMoving && bestMotionChar && bestMotionDist < 0.6) {
+  // When moving/recently moved: prefer motion match, fall back to static
+  if ((handMoving || recentlyMoved) && bestMotionChar && bestMotionDist < 0.6) {
     const conf = Math.max(0, Math.min(100, Math.round((1 - bestMotionDist / 0.6) * 100)));
     return [bestMotionChar, conf];
   }
