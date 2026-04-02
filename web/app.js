@@ -593,7 +593,7 @@ function recognizeDebug(history) {
         orientSim = Math.max(0, 1 - orientationDistance(latest.orientation, midOr) / 1.5);
       }
       const hasOrient = cal.orientations && cal.orientations.length > 0;
-      const score = hasOrient ? shapeSim * 0.6 + orientSim * 0.4 : shapeSim;
+      const score = hasOrient ? shapeSim * 0.8 + orientSim * 0.2 : shapeSim;
       results.push({char, score: Math.round(score * 100), type: "静"});
     }
   }
@@ -670,9 +670,8 @@ function recognize(history) {
       }
 
       const hasOrient = cal.orientations && cal.orientations.length > 0;
-      // Shape (joint angles) 60%, Orientation 40% — orientation matters more now
       const score = hasOrient
-        ? shapeSim * 0.6 + orientSim * 0.4
+        ? shapeSim * 0.8 + orientSim * 0.2
         : shapeSim;
       if (score > bestStaticScore) {
         bestStaticScore = score;
