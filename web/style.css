@@ -144,6 +144,8 @@ body {
   0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
   100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
 }
+.admin-only { display: none; }
+body.is-admin .admin-only { display: block; }
 
 /* ── Calibration ── */
 .cal-header {

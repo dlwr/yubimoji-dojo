@@ -821,12 +821,12 @@ function onHandResults(results) {
           lastRecognizedTime = now;
         }
 
-        updateGameStatus(`認識: ${result[0].char}(${result[0].score}%)`);
+        if (IS_ADMIN) updateGameStatus(`認識: ${result[0].char}(${result[0].score}%)`);
       } else {
         if (now - lastRecognizedTime > 600) {
           lastRecognized = "";
         }
-        updateGameStatus("手を検出中... ✋");
+        if (IS_ADMIN) updateGameStatus("手を検出中... ✋");
       }
     }
   } else {
@@ -1167,8 +1167,9 @@ async function init() {
     } catch (e) {}
   }
 
-  // Show admin buttons
+  // Show admin UI
   if (IS_ADMIN) {
+    document.body.classList.add("is-admin");
     const calMenuBtn = document.getElementById("cal-menu-btn");
     const calGameBtn = document.getElementById("cal-game-btn");
     if (calMenuBtn) calMenuBtn.style.display = "";
