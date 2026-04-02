@@ -719,10 +719,10 @@ function onHandResults(results) {
           if (lastRecognized === gameCurrentChar && now - lastRecognizedTime > 150) {
             onSignRecognized(gameCurrentChar, directHit.score);
           }
-          lastRecognized = gameCurrentChar;
           if (lastRecognized !== gameCurrentChar) {
             lastRecognizedTime = now;
           }
+          lastRecognized = gameCurrentChar;
         } else {
           // Show what's being recognized
           lastRecognized = result[0].char;
