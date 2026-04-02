@@ -810,14 +810,8 @@ function onHandResults(results) {
         const directHit = top3.find(r => r.char === gameCurrentChar && r.score > 30);
 
         if (directHit) {
-          // Correct answer found in top 3
-          if (lastRecognized === gameCurrentChar && now - lastRecognizedTime > 150) {
-            onSignRecognized(gameCurrentChar, directHit.score);
-          }
-          if (lastRecognized !== gameCurrentChar) {
-            lastRecognizedTime = now;
-          }
-          lastRecognized = gameCurrentChar;
+          // Correct answer found in top 3 → instant accept
+          onSignRecognized(gameCurrentChar, directHit.score);
         } else {
           // Show what's being recognized
           lastRecognized = result[0].char;
