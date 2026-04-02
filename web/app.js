@@ -358,15 +358,18 @@ async function saveCalibration() {
 
     // If admin, also save to KV (shared with all users)
     if (IS_ADMIN) {
+      console.log("Saving to KV...", Object.keys(calibrationData).length, "signs");
       const res = await fetch(`${API_URL}/calibration?key=${ADMIN_KEY}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(calibrationData),
       });
-      if (!res.ok) throw new Error("KV save failed");
-      updateCalStatus("💾 保存完了 ✓ (サーバー同期済み)");
+      const result = await res.json();
+      console.log("KV response:", result);
+      if (!res.ok) throw new Error("KV save failed: " + JSON.stringify(result));
+      updateCalStatus(`💾 保存完了 ✓ (${Object.keys(calibrationData).length}文字 サーバー同期済み)`);
     } else {
-      updateCalStatus("💾 保存完了 ✓");
+      updateCalStatus("💾 保存完了 ✓ (ローカルのみ)");
     }
     console.log("Saved:", Object.keys(calibrationData).length, "signs");
   } catch (e) {
@@ -382,8 +385,16 @@ async function loadCalibration() {
     if (res.ok) {
       const data = await res.json();
       if (data && Object.keys(data).length > 0) {
-        calibrationData = data;
-        console.log("Loaded from KV:", Object.keys(calibrationData).length, "signs");
+        // Check if data is v3 format (shapes are arrays of numbers, not arrays of {x,y,z})
+        const firstChar = Object.keys(data)[0];
+        const firstShape = data[firstChar]?.shapes?.[0];
+        const isV3 = typeof firstShape?.[0] === "number";
+        if (isV3) {
+          calibrationData = data;
+          console.log("Loaded v3 from KV:", Object.keys(calibrationData).length, "signs");
+        } else {
+          console.log("KV has old format data, skipping");
+        }
         // Cache locally
         try {
           const db = await openDB();
