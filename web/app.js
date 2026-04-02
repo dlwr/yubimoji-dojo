@@ -1081,6 +1081,8 @@ async function init() {
     const calGameBtn = document.getElementById("cal-game-btn");
     if (calMenuBtn) calMenuBtn.style.display = "";
     if (calGameBtn) calGameBtn.style.display = "";
+    const randomBtn = document.getElementById("random-btn");
+    if (randomBtn) randomBtn.style.display = "";
   }
 
   initHands();

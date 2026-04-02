@@ -13,8 +13,8 @@
     <h1>指文字道場</h1>
     <p class="subtitle">〜 カメラで指文字を練習しよう 〜</p>
     <div class="menu">
-      <button onclick="startGame('random')">🎯 ランダム練習</button>
-      <button onclick="startGame('word')">📝 単語モード</button>
+      <button id="random-btn" onclick="startGame('random')" style="display:none">🎯 ランダム練習</button>
+      <button onclick="startGame('word')">📝 はじめる</button>
       <button id="cal-menu-btn" onclick="showScreen('calibration-screen')" style="display:none">🔧 キャリブレーション</button>
     </div>
     <p class="sign-count" id="sign-count"></p>
