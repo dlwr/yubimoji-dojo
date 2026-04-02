@@ -635,7 +635,7 @@ function onHandResults(results) {
 
     // Throttle recognition (every 3rd frame to reduce DTW load)
     recognizeCounter++;
-    const shouldRecognize = recognizeCounter % 3 === 0;
+    const shouldRecognize = recognizeCounter % 2 === 0;
 
     // Calibration test mode — show top 3 candidates for debugging
     if (currentScreen === "calibration-screen" && !calRecording && shouldRecognize) {
@@ -650,26 +650,41 @@ function onHandResults(results) {
 
     // Game recognition
     if (currentScreen === "game-screen" && !gameWaiting && shouldRecognize) {
-      const [char, conf] = recognize(featureHistory);
+      const result = recognizeDebug(featureHistory);
       const now = Date.now();
 
-      if (char && conf > 30) {
-        if (char === lastRecognized) {
-          // Same char sustained → trigger after 300ms
-          if (now - lastRecognizedTime > 300) {
-            onSignRecognized(char, conf);
+      // Fuzzy match: accept if current char is in top 2, or score > 40%
+      let matched = false;
+      if (result.length > 0) {
+        const top2 = result.slice(0, 2);
+        const directHit = top2.find(r => r.char === gameCurrentChar && r.score > 30);
+        const bestChar = result[0].char;
+        const bestScore = result[0].score;
+
+        if (directHit) {
+          // Current char is in top 2 with decent score → instant match
+          if (now - lastRecognizedTime > 150) {
+            onSignRecognized(gameCurrentChar, directHit.score);
+            matched = true;
           }
-        } else if (now - lastRecognizedTime > 500) {
-          // Different char, but only switch if 500ms since last recognition
-          // This prevents "が" flickering to "か" immediately
-          lastRecognized = char;
+          lastRecognized = gameCurrentChar;
           lastRecognizedTime = now;
+        } else if (bestChar && bestScore > 40) {
+          if (bestChar === lastRecognized && now - lastRecognizedTime > 200) {
+            onSignRecognized(bestChar, bestScore);
+            matched = true;
+          }
+          if (bestChar !== lastRecognized && now - lastRecognizedTime > 400) {
+            lastRecognized = bestChar;
+            lastRecognizedTime = now;
+          }
         }
-        // If within 500ms holdoff and char differs, keep showing last recognized
-        updateGameStatus(`認識: ${lastRecognized} (${conf}%)`);
+
+        if (!matched && result.length > 0) {
+          updateGameStatus(`認識: ${result[0].char}(${result[0].score}%)`);
+        }
       } else {
-        // No recognition — only clear after holdoff period
-        if (now - lastRecognizedTime > 800) {
+        if (now - lastRecognizedTime > 600) {
           lastRecognized = "";
         }
         updateGameStatus("手を検出中... ✋");
@@ -917,7 +932,7 @@ function onSignRecognized(char, conf) {
           nextRandomChar();
         }
       }
-    }, 1000);
+    }, 400);
   }
 }
 
@@ -936,7 +951,7 @@ function onTimeout() {
         nextRandomChar();
       }
     }
-  }, 2000);
+  }, 1000);
 }
 
 function showResults() {
