@@ -138,37 +138,74 @@ function dist3d(a, b) {
 }
 
 function extractOrientation(landmarks) {
-  // Orientation: palm normal vector using cross product
-  // Vector A: wrist → middle MCP (landmark 0 → 9)
-  // Vector B: wrist → index MCP (landmark 0 → 5)
-  // Normal = A × B (gives direction palm faces)
+  // Orientation: palm twist relative to hand's own axis (camera-independent)
+  //
+  // Hand axis:   WRIST → MIDDLE_MCP (direction hand points)
+  // Palm normal: (WRIST→INDEX_MCP) × (WRIST→PINKY_MCP)
+  // Palm side:   cross(handAxis, palmNormal)
+  //
+  // We express the palm normal in the hand's LOCAL coordinate frame.
+  // This gives us intrinsic orientation that doesn't change with
+  // camera angle or body rotation, but DOES change when wrist rotates.
+
   const w = landmarks[0];
-  const mMcp = landmarks[9];
-  const iMcp = landmarks[5];
+  const iMcp = landmarks[5];   // index MCP
+  const mMcp = landmarks[9];   // middle MCP
+  const pMcp = landmarks[17];  // pinky MCP
 
-  const ax = mMcp.x - w.x, ay = mMcp.y - w.y, az = mMcp.z - w.z;
-  const bx = iMcp.x - w.x, by = iMcp.y - w.y, bz = iMcp.z - w.z;
+  // Hand axis (Z in local frame): wrist → middle MCP
+  let hx = mMcp.x - w.x, hy = mMcp.y - w.y, hz = mMcp.z - w.z;
+  const hLen = Math.sqrt(hx*hx + hy*hy + hz*hz);
+  if (hLen > 0.0001) { hx /= hLen; hy /= hLen; hz /= hLen; }
 
-  // Cross product
-  let nx = ay * bz - az * by;
-  let ny = az * bx - ax * bz;
-  let nz = ax * by - ay * bx;
+  // Vectors for palm plane
+  const aix = iMcp.x - w.x, aiy = iMcp.y - w.y, aiz = iMcp.z - w.z;
+  const apx = pMcp.x - w.x, apy = pMcp.y - w.y, apz = pMcp.z - w.z;
 
-  // Normalize
-  const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
-  if (len > 0.0001) {
-    nx /= len; ny /= len; nz /= len;
+  // Palm normal (cross product): index × pinky
+  let nx = aiy * apz - aiz * apy;
+  let ny = aiz * apx - aix * apz;
+  let nz = aix * apy - aiy * apx;
+  const nLen = Math.sqrt(nx*nx + ny*ny + nz*nz);
+  if (nLen > 0.0001) { nx /= nLen; ny /= nLen; nz /= nLen; }
+
+  // Express palm normal in hand's local frame:
+  // Local X: palm side direction = cross(handAxis, palmNormal)
+  let sx = hy * nz - hz * ny;
+  let sy = hz * nx - hx * nz;
+  let sz = hx * ny - hy * nx;
+  const sLen = Math.sqrt(sx*sx + sy*sy + sz*sz);
+  if (sLen > 0.0001) { sx /= sLen; sy /= sLen; sz /= sLen; }
+
+  // Intrinsic orientation angles:
+  // 1. Palm twist: angle between palm normal and hand axis
+  const palmTwist = Math.acos(Math.max(-1, Math.min(1,
+    nx * hx + ny * hy + nz * hz)));
+
+  // 2. Palm roll: using atan2 of normal projected onto local XY plane
+  // Project normal onto plane perpendicular to hand axis
+  const projX = nx * sx + ny * sy + nz * sz; // dot with side
+  const projY = nx * hx + ny * hy + nz * hz; // dot with hand axis
+  const palmRoll = Math.atan2(projX, projY);
+
+  // 3. Finger spread plane angle: angle between index-pinky line and hand axis
+  const ipx = pMcp.x - iMcp.x, ipy = pMcp.y - iMcp.y, ipz = pMcp.z - iMcp.z;
+  const ipLen = Math.sqrt(ipx*ipx + ipy*ipy + ipz*ipz);
+  let spreadAngle = 0;
+  if (ipLen > 0.0001) {
+    spreadAngle = Math.acos(Math.max(-1, Math.min(1,
+      (ipx*hx + ipy*hy + ipz*hz) / ipLen)));
   }
 
-  // Also compute hand "up" direction (wrist → middle fingertip)
-  const tip = landmarks[12];
-  let ux = tip.x - w.x, uy = tip.y - w.y, uz = tip.z - w.z;
-  const ulen = Math.sqrt(ux * ux + uy * uy + uz * uz);
-  if (ulen > 0.0001) {
-    ux /= ulen; uy /= ulen; uz /= ulen;
-  }
+  return { palmTwist, palmRoll, spreadAngle };
+}
 
-  return { nx, ny, nz, ux, uy, uz };
+function orientationDistance(a, b) {
+  // Distance between two intrinsic orientations
+  const dt = a.palmTwist - b.palmTwist;
+  const dr = a.palmRoll - b.palmRoll;
+  const ds = a.spreadAngle - b.spreadAngle;
+  return Math.sqrt(dt*dt + dr*dr + ds*ds);
 }
 
 function extractPosition(landmarks) {
@@ -198,14 +235,6 @@ function shapeDistance(a, b) {
   return Math.sqrt(total / len);
 }
 
-function orientationDistance(a, b) {
-  // Cosine distance of palm normal
-  const dotN = a.nx * b.nx + a.ny * b.ny + a.nz * b.nz;
-  // Cosine distance of hand "up" direction
-  const dotU = a.ux * b.ux + a.uy * b.uy + a.uz * b.uz;
-  // Average: 0 = identical, 2 = opposite
-  return (1 - dotN) + (1 - dotU);
-}
 
 function motionDistance(seqA, seqB) {
   // Compare relative motion trajectories using DTW
@@ -568,7 +597,7 @@ function recognizeDebug(history) {
       if (cal.orientations.length > 0) {
         const calMid = cal.orientations[Math.floor(cal.orientations.length / 2)];
         const curOr = history[history.length - 1].orientation;
-        orientSim = Math.max(0, 1 - orientationDistance(curOr, calMid) / 1.5);
+        orientSim = Math.max(0, 1 - orientationDistance(curOr, calMid) / 2.0);
       }
       const hasOrient = cal.orientations && cal.orientations.length > 0;
       const hasPos = cal.positions && cal.positions.length > 0;
@@ -590,10 +619,10 @@ function recognizeDebug(history) {
       let orientSim = 0;
       if (cal.orientations.length > 0) {
         const midOr = cal.orientations[Math.floor(cal.orientations.length / 2)];
-        orientSim = Math.max(0, 1 - orientationDistance(latest.orientation, midOr) / 1.5);
+        orientSim = Math.max(0, 1 - orientationDistance(latest.orientation, midOr) / 2.0);
       }
       const hasOrient = cal.orientations && cal.orientations.length > 0;
-      const score = hasOrient ? shapeSim * 0.8 + orientSim * 0.2 : shapeSim;
+      const score = hasOrient ? shapeSim * 0.65 + orientSim * 0.35 : shapeSim;
       results.push({char, score: Math.round(score * 100), type: "静"});
     }
   }
@@ -635,7 +664,7 @@ function recognize(history) {
       if (cal.orientations.length > 0 && history.length > 0) {
         const calMid = cal.orientations[Math.floor(cal.orientations.length / 2)];
         const curOr = history[history.length - 1].orientation;
-        orientSim = Math.max(0, 1 - orientationDistance(curOr, calMid) / 1.5);
+        orientSim = Math.max(0, 1 - orientationDistance(curOr, calMid) / 2.0);
       }
 
       const hasOrient = cal.orientations && cal.orientations.length > 0;
@@ -671,7 +700,7 @@ function recognize(history) {
 
       const hasOrient = cal.orientations && cal.orientations.length > 0;
       const score = hasOrient
-        ? shapeSim * 0.8 + orientSim * 0.2
+        ? shapeSim * 0.65 + orientSim * 0.35
         : shapeSim;
       if (score > bestStaticScore) {
         bestStaticScore = score;
