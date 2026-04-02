@@ -715,12 +715,12 @@ function recognize(history) {
     }
   }
 
-  if ((moving || recentlyMoved) && bestMotionChar && bestMotionScore > 0.3) {
+  if ((moving || recentlyMoved) && bestMotionChar && bestMotionScore > 0.15) {
     const conf = Math.round(bestMotionScore * 100);
     return [bestMotionChar, conf];
   }
 
-  if (bestStaticChar && bestStaticScore > 0.35) {
+  if (bestStaticChar && bestStaticScore > 0.2) {
     const conf = Math.round(bestStaticScore * 100);
     return [bestStaticChar, conf];
   }
@@ -815,10 +815,10 @@ function onHandResults(results) {
       if (result.length > 0) {
         // Check if current char is in top 3 with decent score
         const top3 = result.slice(0, 3);
-        const directHit = top3.find(r => r.char === gameCurrentChar && r.score > 30);
+        const directHit = top3.find(r => r.char === gameCurrentChar && r.score > 15);
 
         if (directHit) {
-          // Correct answer found in top 3 → instant accept
+          // Correct answer found in top 3 → instant accept (even 1 frame is enough)
           onSignRecognized(gameCurrentChar, directHit.score);
         } else {
           // Show what's being recognized
