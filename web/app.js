@@ -262,9 +262,15 @@ let recognizeCounter = 0;
 
 // ── IndexedDB Storage (no size limit) ───────────────────────────────────────
 
+const API_URL = "https://yubimoji-dojo-api.yuta25.workers.dev";
 const DB_NAME = "yubimoji-dojo";
 const DB_STORE = "calibration";
 const DB_VERSION = 1;
+
+// Admin mode: ?admin=KEY in URL
+const urlParams = new URLSearchParams(window.location.search);
+const ADMIN_KEY = urlParams.get("admin") || "";
+const IS_ADMIN = ADMIN_KEY.length > 0;
 
 function openDB() {
   return new Promise((resolve, reject) => {
@@ -283,6 +289,7 @@ function openDB() {
 async function saveCalibration() {
   updateCalStatus("💾 保存中...");
   try {
+    // Save to IndexedDB (local cache)
     const db = await openDB();
     const tx = db.transaction(DB_STORE, "readwrite");
     const store = tx.objectStore(DB_STORE);
@@ -291,8 +298,20 @@ async function saveCalibration() {
       tx.oncomplete = resolve;
       tx.onerror = () => reject(tx.error);
     });
-    updateCalStatus("💾 保存完了 ✓");
-    console.log("Saved to IndexedDB:", Object.keys(calibrationData).length, "signs");
+
+    // If admin, also save to KV (shared with all users)
+    if (IS_ADMIN) {
+      const res = await fetch(`${API_URL}/calibration?key=${ADMIN_KEY}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(calibrationData),
+      });
+      if (!res.ok) throw new Error("KV save failed");
+      updateCalStatus("💾 保存完了 ✓ (サーバー同期済み)");
+    } else {
+      updateCalStatus("💾 保存完了 ✓");
+    }
+    console.log("Saved:", Object.keys(calibrationData).length, "signs");
   } catch (e) {
     console.warn("Save failed:", e);
     updateCalStatus("⚠️ 保存失敗: " + e.message);
@@ -300,6 +319,28 @@ async function saveCalibration() {
 }
 
 async function loadCalibration() {
+  // 1. Try loading from KV (server, shared data)
+  try {
+    const res = await fetch(`${API_URL}/calibration`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && Object.keys(data).length > 0) {
+        calibrationData = data;
+        console.log("Loaded from KV:", Object.keys(calibrationData).length, "signs");
+        // Cache locally
+        try {
+          const db = await openDB();
+          const tx = db.transaction(DB_STORE, "readwrite");
+          tx.objectStore(DB_STORE).put(calibrationData, "data");
+        } catch (e) {}
+        return;
+      }
+    }
+  } catch (e) {
+    console.warn("KV load failed, trying local:", e);
+  }
+
+  // 2. Fallback: IndexedDB (local cache)
   try {
     const db = await openDB();
     const tx = db.transaction(DB_STORE, "readonly");
@@ -318,7 +359,7 @@ async function loadCalibration() {
     console.warn("IndexedDB load failed:", e);
   }
 
-  // Fallback: migrate from localStorage
+  // 3. Fallback: localStorage migration
   const lsData = localStorage.getItem("yubimoji-calibration-v2") ||
                   localStorage.getItem("yubimoji-calibration");
   if (lsData) {
@@ -332,8 +373,6 @@ async function loadCalibration() {
         }
       }
       console.log("Migrated from localStorage:", Object.keys(calibrationData).length, "signs");
-      // Save to IndexedDB and clean up localStorage
-      await saveCalibration();
       localStorage.removeItem("yubimoji-calibration-v2");
       localStorage.removeItem("yubimoji-calibration");
     } catch (e) {}
@@ -1034,6 +1073,14 @@ async function init() {
         await saveCalibration();
       }
     } catch (e) {}
+  }
+
+  // Show admin buttons
+  if (IS_ADMIN) {
+    const calMenuBtn = document.getElementById("cal-menu-btn");
+    const calGameBtn = document.getElementById("cal-game-btn");
+    if (calMenuBtn) calMenuBtn.style.display = "";
+    if (calGameBtn) calGameBtn.style.display = "";
   }
 
   initHands();
