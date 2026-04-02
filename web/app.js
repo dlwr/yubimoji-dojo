@@ -66,20 +66,75 @@ const WORDS = [
 // ── 3-Axis Feature Extraction ───────────────────────────────────────────────
 
 function extractShape(landmarks) {
-  // Shape: relative angles/distances between finger joints
-  // Normalize relative to wrist, scaled by hand size
-  const wrist = landmarks[0];
-  const midMcp = landmarks[9];
-  let scale = Math.sqrt(
-    (midMcp.x - wrist.x) ** 2 + (midMcp.y - wrist.y) ** 2
-  );
-  if (scale < 0.001) scale = 0.001;
+  // Shape: joint angles + finger spread (camera-angle independent)
+  // 
+  // For each finger: 3 joint angles (MCP bend, PIP bend, DIP bend)
+  // Plus: 4 finger spread angles (between adjacent fingers)
+  // Plus: thumb position relative to palm
+  //
+  // Total: 15 joint angles + 4 spreads + 2 thumb = 21 values
 
-  return landmarks.map(lm => ({
-    x: (lm.x - wrist.x) / scale,
-    y: (lm.y - wrist.y) / scale,
-    z: (lm.z - wrist.z) / scale,
-  }));
+  const angles = [];
+
+  // Finger joint chains: [MCP, PIP, DIP, TIP]
+  const fingers = [
+    [1, 2, 3, 4],     // thumb
+    [5, 6, 7, 8],     // index
+    [9, 10, 11, 12],  // middle
+    [13, 14, 15, 16], // ring
+    [17, 18, 19, 20], // pinky
+  ];
+
+  // Joint angles for each finger (3 per finger = 15 total)
+  for (const f of fingers) {
+    for (let i = 0; i < 3; i++) {
+      const a = landmarks[f[i]];
+      const b = landmarks[f[i + 1]];
+      let prev;
+      if (i === 0) {
+        prev = landmarks[0]; // wrist for MCP
+      } else {
+        prev = landmarks[f[i - 1]];
+      }
+      angles.push(angleBetween(prev, a, b));
+    }
+  }
+
+  // Finger spread: angle between adjacent fingertips relative to MCP line
+  const mcps = [5, 9, 13, 17]; // index, middle, ring, pinky MCP
+  const tips = [8, 12, 16, 20];
+  for (let i = 0; i < 3; i++) {
+    const spread = angleBetween(landmarks[0], landmarks[tips[i]], landmarks[tips[i + 1]]);
+    angles.push(spread);
+  }
+  // Thumb-index spread
+  angles.push(angleBetween(landmarks[0], landmarks[4], landmarks[8]));
+
+  // Thumb cross: is thumb tip near index MCP? (for signs like お)
+  const thumbCross = dist3d(landmarks[4], landmarks[5]);
+  const handSize = dist3d(landmarks[0], landmarks[9]);
+  angles.push(handSize > 0.001 ? thumbCross / handSize : 0);
+
+  // Thumb position: above or below index (for signs like あ)
+  angles.push(landmarks[4].y - landmarks[8].y);
+
+  return angles;
+}
+
+function angleBetween(a, b, c) {
+  // Angle at point b formed by vectors b→a and b→c
+  const bax = a.x - b.x, bay = a.y - b.y, baz = a.z - b.z;
+  const bcx = c.x - b.x, bcy = c.y - b.y, bcz = c.z - b.z;
+  const dot = bax * bcx + bay * bcy + baz * bcz;
+  const magA = Math.sqrt(bax * bax + bay * bay + baz * baz);
+  const magC = Math.sqrt(bcx * bcx + bcy * bcy + bcz * bcz);
+  if (magA < 0.0001 || magC < 0.0001) return 0;
+  const cosAngle = Math.max(-1, Math.min(1, dot / (magA * magC)));
+  return Math.acos(cosAngle); // radians, 0 to PI
+}
+
+function dist3d(a, b) {
+  return Math.sqrt((a.x-b.x)**2 + (a.y-b.y)**2 + (a.z-b.z)**2);
 }
 
 function extractOrientation(landmarks) {
@@ -132,13 +187,15 @@ function extractFeatures(landmarks) {
 // ── Distance Functions (per axis) ───────────────────────────────────────────
 
 function shapeDistance(a, b) {
+  // a and b are arrays of numbers (joint angles)
+  if (!a || !b || a.length === 0 || b.length === 0) return 999;
+  const len = Math.min(a.length, b.length);
   let total = 0;
-  for (let i = 0; i < Math.min(a.length, b.length, 21); i++) {
-    const dx = a[i].x - b[i].x;
-    const dy = a[i].y - b[i].y;
-    total += Math.sqrt(dx * dx + dy * dy);
+  for (let i = 0; i < len; i++) {
+    const diff = a[i] - b[i];
+    total += diff * diff;
   }
-  return total / 21;
+  return Math.sqrt(total / len);
 }
 
 function orientationDistance(a, b) {
@@ -201,6 +258,7 @@ function dtwPositions(seqA, seqB) {
 
 function dtwShape(seqA, seqB) {
   const MAX = 15;
+  if (!seqA.length || !seqB.length) return 999;
   if (seqA.length > MAX) {
     const step = (seqA.length - 1) / (MAX - 1);
     seqA = Array.from({length: MAX}, (_, i) => seqA[Math.round(i * step)]);
@@ -210,7 +268,6 @@ function dtwShape(seqA, seqB) {
     seqB = Array.from({length: MAX}, (_, i) => seqB[Math.round(i * step)]);
   }
   const n = seqA.length, m = seqB.length;
-  if (n === 0 || m === 0) return 999;
   const dtw = Array.from({length: n + 1}, () => new Float32Array(m + 1).fill(Infinity));
   dtw[0][0] = 0;
   for (let i = 1; i <= n; i++) {
@@ -489,7 +546,7 @@ function recognizeDebug(history) {
       let shapeSim = 0;
       if (cal.shapes.length > 0) {
         const d = dtwShape(recentShapes, cal.shapes);
-        shapeSim = Math.max(0, 1 - d / 0.8);
+        shapeSim = Math.max(0, 1 - d / 1.2);
       }
       let motionSim = 0;
       if (cal.positions.length > 0) {
@@ -502,20 +559,30 @@ function recognizeDebug(history) {
         const curOr = history[history.length - 1].orientation;
         orientSim = Math.max(0, 1 - orientationDistance(curOr, calMid) / 1.5);
       }
-      const score = shapeSim * 0.4 + motionSim * 0.4 + orientSim * 0.2;
+      const hasOrient = cal.orientations && cal.orientations.length > 0;
+      const hasPos = cal.positions && cal.positions.length > 0;
+      let score;
+      if (hasOrient && hasPos) {
+        score = shapeSim * 0.3 + motionSim * 0.4 + orientSim * 0.3;
+      } else if (hasPos) {
+        score = shapeSim * 0.5 + motionSim * 0.5;
+      } else {
+        score = shapeSim;
+      }
       results.push({char, score: Math.round(score * 100), type: "動"});
     } else {
       const latest = history[history.length - 1];
       const midIdx = Math.floor(cal.shapes.length / 2);
+      // Joint angle distance (smaller = better match, typically 0-1.5 range)
       const d = shapeDistance(latest.shape, cal.shapes[midIdx]);
-      const shapeSim = Math.max(0, 1 - d / 0.5);
+      const shapeSim = Math.max(0, 1 - d / 1.0);
       let orientSim = 0;
       if (cal.orientations.length > 0) {
         const midOr = cal.orientations[Math.floor(cal.orientations.length / 2)];
         orientSim = Math.max(0, 1 - orientationDistance(latest.orientation, midOr) / 1.5);
       }
       const hasOrient = cal.orientations && cal.orientations.length > 0;
-      const score = hasOrient ? shapeSim * 0.7 + orientSim * 0.3 : shapeSim;
+      const score = hasOrient ? shapeSim * 0.6 + orientSim * 0.4 : shapeSim;
       results.push({char, score: Math.round(score * 100), type: "静"});
     }
   }
@@ -528,7 +595,6 @@ function recognize(history) {
   if (!Object.keys(calibrationData).length || !history.length) return ["", 0];
 
   const moving = isHandCurrentlyMoving(history);
-  // Also check if moved in recent ~1 second
   const recentlyMoved = history.length >= 10 &&
     isHandCurrentlyMoving(history.slice(-20));
 
@@ -537,41 +603,35 @@ function recognize(history) {
 
   for (const [char, cal] of Object.entries(calibrationData)) {
     if (cal.hasMotion) {
-      // Motion sign: only evaluate when moving or recently moved
       if (!moving && !recentlyMoved) continue;
 
       const recentShapes = history.slice(-20).map(h => h.shape);
       const recentPositions = history.slice(-20).map(h => h.position);
 
-      // Shape similarity (DTW)
       let shapeSim = 0;
       if (cal.shapes.length > 0) {
         const d = dtwShape(recentShapes, cal.shapes);
-        shapeSim = Math.max(0, 1 - d / 0.8);
+        shapeSim = Math.max(0, 1 - d / 1.2);
       }
 
-      // Motion trajectory similarity
       let motionSim = 0;
       if (cal.positions.length > 0) {
         const d = motionDistance(recentPositions, cal.positions);
         motionSim = Math.max(0, 1 - d / 0.1);
       }
 
-      // Orientation similarity (average over sequence)
       let orientSim = 0;
       if (cal.orientations.length > 0 && history.length > 0) {
         const calMid = cal.orientations[Math.floor(cal.orientations.length / 2)];
         const curOr = history[history.length - 1].orientation;
-        const d = orientationDistance(curOr, calMid);
-        orientSim = Math.max(0, 1 - d / 1.5);
+        orientSim = Math.max(0, 1 - orientationDistance(curOr, calMid) / 1.5);
       }
 
-      // Weighted score — adapt if orientation/position data missing
       const hasOrient = cal.orientations && cal.orientations.length > 0;
       const hasPos = cal.positions && cal.positions.length > 0;
       let score;
       if (hasOrient && hasPos) {
-        score = shapeSim * 0.4 + motionSim * 0.4 + orientSim * 0.2;
+        score = shapeSim * 0.3 + motionSim * 0.4 + orientSim * 0.3;
       } else if (hasPos) {
         score = shapeSim * 0.5 + motionSim * 0.5;
       } else {
@@ -582,18 +642,15 @@ function recognize(history) {
         bestMotionChar = char;
       }
     } else {
-      // Static sign: compare latest frame
       const latest = history[history.length - 1];
 
-      // Shape similarity
       let shapeSim = 0;
       if (cal.shapes.length > 0) {
         const midIdx = Math.floor(cal.shapes.length / 2);
         const d = shapeDistance(latest.shape, cal.shapes[midIdx]);
-        shapeSim = Math.max(0, 1 - d / 0.5);
+        shapeSim = Math.max(0, 1 - d / 1.0);
       }
 
-      // Orientation similarity
       let orientSim = 0;
       if (cal.orientations.length > 0) {
         const midIdx = Math.floor(cal.orientations.length / 2);
@@ -601,10 +658,10 @@ function recognize(history) {
         orientSim = Math.max(0, 1 - d / 1.5);
       }
 
-      // Weighted score — if no orientation data, use shape only
       const hasOrient = cal.orientations && cal.orientations.length > 0;
+      // Shape (joint angles) 60%, Orientation 40% — orientation matters more now
       const score = hasOrient
-        ? shapeSim * 0.7 + orientSim * 0.3
+        ? shapeSim * 0.6 + orientSim * 0.4
         : shapeSim;
       if (score > bestStaticScore) {
         bestStaticScore = score;
@@ -613,13 +670,12 @@ function recognize(history) {
     }
   }
 
-  // Prefer motion match when moving
   if ((moving || recentlyMoved) && bestMotionChar && bestMotionScore > 0.3) {
     const conf = Math.round(bestMotionScore * 100);
     return [bestMotionChar, conf];
   }
 
-  if (bestStaticChar && bestStaticScore > 0.4) {
+  if (bestStaticChar && bestStaticScore > 0.35) {
     const conf = Math.round(bestStaticScore * 100);
     return [bestStaticChar, conf];
   }
