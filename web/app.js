@@ -38,29 +38,30 @@ const SECTION_LABELS = {
 };
 
 const WORDS = [
-  // カタカナ語（指文字の実用）
+  // 国名
   "あめりか","いぎりす","ふらんす","いたりあ","すぺいん",
   "どいつ","ぶらじる","かなだ","おーすとらりあ",
-  "とうきょう","おおさか","こうふ","よこはま","なごや",
+  "めきしこ","あるぜんちん","ぽるとがる","おらんだ",
+  "すうぇーでん","のるうぇー","すいす","べるぎー",
+  "いんど","たい","いんどねしあ","ぺるー","ちり",
   // 外国人名
   "まいける","じょん","ありす","えみりー","でいびっど",
   "ろばーと","じぇーむず","おりばー","そふぃあ",
-  // 日本人名（指文字で表すことがある）
-  "たなか","すずき","やまだ","さとう","わたなべ",
-  // カタカナ語（日常）
+  "まりあ","あんな","ぴーたー","じょーじ","りさ",
+  "とむ","じゃっく","えま","のあ","みあ",
+  // カタカナ語
   "こーひー","ぱそこん","すまほ","いんたーねっと",
   "ぷろぐらみんぐ","げーむ","さっかー","ばすけっと",
   "ぎたー","ぴあの","かめら","てれび",
-  // 手話・ろう関連
-  "しゅわ","ゆびもじ","でふりんぴっく",
-  // 日常の言葉
-  "おはよう","ありがとう","こんにちは","こんばんは",
-  "さようなら","すみません","おねがいします",
-  // 食べ物
-  "らーめん","すし","てんぷら","うどん","そば",
+  "ちょこれーと","あいすくりーむ","けーき",
   "ぱすた","ぴざ","はんばーがー","かれー",
-  // ヴァンフォーレ
-  "ヴぁんふぉーれ","こうふ","じぇいりーぐ",
+  "らーめん","びーる","わいん","じゅーす",
+  "たくしー","ばす","えれべーたー",
+  "ほてる","れすとらん","こんびに",
+  "すにーかー","じーんず","しゃつ",
+  // スポーツ
+  "じぇいりーぐ","さっかー","ばれーぼーる",
+  "てにす","ごるふ","すけーと","すきー",
 ];
 
 // ── 3-Axis Feature Extraction ───────────────────────────────────────────────
@@ -760,9 +761,11 @@ function onHandResults(results) {
   if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
     const landmarks = results.multiHandLandmarks[0];
 
-    // Draw landmarks
-    drawConnectors(ctx, landmarks, HAND_CONNECTIONS, {color: "#0f0", lineWidth: 2});
-    drawLandmarks(ctx, landmarks, {color: "#0f0", lineWidth: 1, radius: 3});
+    // Draw landmarks (admin only)
+    if (IS_ADMIN) {
+      drawConnectors(ctx, landmarks, HAND_CONNECTIONS, {color: "#0f0", lineWidth: 2});
+      drawLandmarks(ctx, landmarks, {color: "#0f0", lineWidth: 1, radius: 3});
+    }
 
     // Extract 3-axis features
     const features = extractFeatures(landmarks);
