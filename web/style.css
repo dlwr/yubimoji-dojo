@@ -263,9 +263,38 @@ body {
 
 /* ── Mobile ── */
 @media (max-width: 768px) {
-  #title-screen h1 { font-size: 40px; }
+  #title-screen h1 { font-size: 36px; }
+  .subtitle { font-size: 14px; }
+  .menu button { padding: 12px 24px; font-size: 18px; }
+
   .game-main, .cal-main { flex-direction: column; }
-  .prompt-char { font-size: 100px; }
-  .gojuon-grid { grid-template-columns: repeat(5, 1fr); }
-  .gojuon-btn { font-size: 18px; }
+  .game-main { padding: 8px; gap: 8px; }
+  .cal-main { padding: 8px; gap: 8px; }
+
+  .camera-box { flex: none; height: 40vh; }
+  .prompt-box { flex: none; padding: 8px; gap: 8px; }
+  .prompt-char { font-size: 80px; }
+  .prompt-label { font-size: 14px; }
+  .word-progress { font-size: 24px; letter-spacing: 4px; }
+
+  .game-top { padding: 8px 12px; }
+  #score, #timer { font-size: 18px; }
+
+  .gojuon-grid { grid-template-columns: repeat(5, 1fr); gap: 4px; }
+  .gojuon-btn { font-size: 16px; }
+  .gojuon-section { font-size: 12px; padding: 4px 0 2px; margin-top: 4px; }
+
+  .gojuon-panel { overflow-y: auto; max-height: 45vh; }
+
+  .cal-controls { padding: 8px; gap: 4px; }
+  .cal-controls select, .cal-controls button { font-size: 12px; padding: 6px 8px; }
+
+  .result-banner { font-size: 36px; padding: 12px 30px; }
+}
+
+@media (max-width: 480px) {
+  #title-screen h1 { font-size: 28px; }
+  .camera-box { height: 35vh; }
+  .prompt-char { font-size: 60px; }
+  .gojuon-btn { font-size: 14px; }
 }
