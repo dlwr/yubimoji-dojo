@@ -653,36 +653,27 @@ function onHandResults(results) {
       const result = recognizeDebug(featureHistory);
       const now = Date.now();
 
-      // Fuzzy match: accept if current char is in top 2, or score > 40%
-      let matched = false;
       if (result.length > 0) {
-        const top2 = result.slice(0, 2);
-        const directHit = top2.find(r => r.char === gameCurrentChar && r.score > 30);
-        const bestChar = result[0].char;
-        const bestScore = result[0].score;
+        // Check if current char is in top 3 with decent score
+        const top3 = result.slice(0, 3);
+        const directHit = top3.find(r => r.char === gameCurrentChar && r.score > 30);
 
         if (directHit) {
-          // Current char is in top 2 with decent score → instant match
-          if (now - lastRecognizedTime > 150) {
+          // Correct answer found in top 3
+          if (lastRecognized === gameCurrentChar && now - lastRecognizedTime > 150) {
             onSignRecognized(gameCurrentChar, directHit.score);
-            matched = true;
           }
           lastRecognized = gameCurrentChar;
-          lastRecognizedTime = now;
-        } else if (bestChar && bestScore > 40) {
-          if (bestChar === lastRecognized && now - lastRecognizedTime > 200) {
-            onSignRecognized(bestChar, bestScore);
-            matched = true;
-          }
-          if (bestChar !== lastRecognized && now - lastRecognizedTime > 400) {
-            lastRecognized = bestChar;
+          if (lastRecognized !== gameCurrentChar) {
             lastRecognizedTime = now;
           }
+        } else {
+          // Show what's being recognized
+          lastRecognized = result[0].char;
+          lastRecognizedTime = now;
         }
 
-        if (!matched && result.length > 0) {
-          updateGameStatus(`認識: ${result[0].char}(${result[0].score}%)`);
-        }
+        updateGameStatus(`認識: ${result[0].char}(${result[0].score}%)`);
       } else {
         if (now - lastRecognizedTime > 600) {
           lastRecognized = "";
@@ -913,6 +904,7 @@ function startTimer() {
 
 function onSignRecognized(char, conf) {
   if (gameWaiting) return;
+  if (char !== gameCurrentChar) return;
 
   if (char === gameCurrentChar) {
     gameScore++;
