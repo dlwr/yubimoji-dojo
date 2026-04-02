@@ -862,13 +862,14 @@ function nextWordChar() {
   if (gameWordIndex >= gameWord.length) {
     showBanner("🎉 " + gameWord, "correct");
     setTimeout(() => {
+      hideBanner();
       const available = WORDS.filter(w =>
         [...w].every(c => calibrationData[c] || c === "　")
       );
       gameWord = available[Math.floor(Math.random() * available.length)];
       gameWordIndex = 0;
       nextWordChar();
-    }, 2000);
+    }, 800);
     return;
   }
 
