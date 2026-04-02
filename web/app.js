@@ -554,18 +554,23 @@ function detectMotionFromShapes(shapes) {
 
 function isHandCurrentlyMoving(history) {
   if (history.length < 5) return false;
-  const recent = history.slice(-12);
-  let maxDist = 0;
+  const recent = history.slice(-15);
+  // Check frame-to-frame movement
+  let maxFrameDist = 0;
+  let totalMovement = 0;
   for (let i = 1; i < recent.length; i++) {
     const dx = recent[i].position.x - recent[i-1].position.x;
     const dy = recent[i].position.y - recent[i-1].position.y;
     const d = Math.sqrt(dx * dx + dy * dy);
-    if (d > maxDist) maxDist = d;
+    if (d > maxFrameDist) maxFrameDist = d;
+    totalMovement += d;
   }
+  // Check overall displacement
   const totalDx = recent[recent.length-1].position.x - recent[0].position.x;
   const totalDy = recent[recent.length-1].position.y - recent[0].position.y;
-  const totalDist = Math.sqrt(totalDx * totalDx + totalDy * totalDy);
-  return maxDist > 0.008 || totalDist > 0.03;
+  const displacement = Math.sqrt(totalDx * totalDx + totalDy * totalDy);
+  // Moving if: any single frame jump OR total displacement OR accumulated movement
+  return maxFrameDist > 0.006 || displacement > 0.02 || totalMovement > 0.04;
 }
 
 // ── Recognition (3-Axis) ────────────────────────────────────────────────────
